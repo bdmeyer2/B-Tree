@@ -68,14 +68,57 @@ namespace badgerdb
 
         try
         {
-            //create blob file constructor will throw if file does not exist
+            //Create blob file constructor will throw if file does not exist
             this->file = new BlobFile(outIndexName, false);
             
             //File does exist
+            //Gage 1 is meta data page
+            //Get page 1 for its indexMetaInfo
+            Page * page;
+            bufMgr->readPage(file, 1, page);
+            IndexMetaInfo * meta;
+            meta = (IndexMetaInfo *)page;
+            //Set rootPageNum
+            this->rootPageNum = meta->rootPageNo;
+            //Set IndexMetaInfo byte offset
+            meta->attrByteOffset = attrByteOffset;
+            //Set IndexMetaInfo relation name
+            strcpy(meta->relationName, relationName.c_str());
+            //Set IndexMetaInfo DataType (DO WE NEED THIS?)
+            meta->attrType = attrType;
+            //Unpin because if we construct to many pages in a row we would run out of buffer space
+            bufMgr->unPinPage(file, 1, false);
+            //No scan is executing
+            this->scanExecuting = false;
         }
+        //File does not exist
         catch (FileNotFoundException e)
         {
-            //file does not exist we must create a new file
+            //Create new file
+            this->file = new BlobFile(outIndexName, true);
+            PageId rootId = 2;
+            Page * page;
+            bufMgr->allocPage(file, rootId, page);
+            //INTEGER
+            if (this->attributeType == 0)
+            {
+                
+            }
+            //DOUBLE
+            else if (this->attributeType == 1)
+            {
+                
+            }
+            //STRING
+            else if (this->attributeType == 2)
+            {
+                
+            }
+            //ERROR
+            else
+            {
+                
+            }
         }
         
         
