@@ -1,6 +1,5 @@
 /**
  * @author See Contributors.txt for code contributors and overview of BadgerDB.
- *
  * @section LICENSE
  * Copyright (c) 2012 Database Group, Computer Sciences Department, University of Wisconsin-Madison.
  */
@@ -86,8 +85,7 @@ const  int STRINGARRAYNONLEAFSIZE = ( Page::SIZE - sizeof( int ) - sizeof( PageI
  * @brief Structure to store a key-rid pair. It is used to pass the pair to functions that 
  * add to or make changes to the leaf node pages of the tree. Is templated for the key member.
  */
-template <class T>
-class RIDKeyPair{
+template <class T> class RIDKeyPair{
 public:
 	RecordId rid;
 	T key;
@@ -102,8 +100,7 @@ public:
  * @brief Structure to store a key page pair which is used to pass the key and page to functions that make 
  * any modifications to the non leaf pages of the tree.
 */
-template <class T>
-class PageKeyPair{
+template <class T> class PageKeyPair{
 public:
 	PageId pageNo;
 	T key;
@@ -119,8 +116,7 @@ public:
  * and if they are the same compares to see if the first pair has
  * a smaller rid.pageNo value.
 */
-template <class T>
-bool operator<( const RIDKeyPair<T>& r1, const RIDKeyPair<T>& r2 )
+template <class T> bool operator<( const RIDKeyPair<T>& r1, const RIDKeyPair<T>& r2 )
 {
 	if( r1.key != r2.key )
 		return r1.key < r2.key;
@@ -229,6 +225,7 @@ struct NonLeafNodeString{
  * @brief Structure for all leaf nodes when the key is of INTEGER type.
 */
 struct LeafNodeInt{
+    
   /**
    * Stores keys.
    */
@@ -241,7 +238,7 @@ struct LeafNodeInt{
 
   /**
    * Page number of the leaf on the right side.
-	 * This linking of leaves allows to easily move from one leaf to the next leaf during index scan.
+   * This linking of leaves allows to easily move from one leaf to the next leaf during index scan.
    */
 	PageId rightSibPageNo;
 };
@@ -398,7 +395,6 @@ class BTreeIndex {
    * High Operator. Can only be LT(<) or LTE(<=).
    */
 	Operator	highOp;
-
 	
  public:
 
@@ -466,7 +462,7 @@ class BTreeIndex {
 	**/
 	const void scanNext(RecordId& outRid);  // returned record id
 
-
+    
   /**
 	 * Terminate the current scan. Unpin any pinned pages. Reset scan specific variables.
 	 * @throws ScanNotInitializedException If no scan has been initialized.
