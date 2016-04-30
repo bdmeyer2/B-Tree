@@ -6,7 +6,7 @@
  * @section LICENSE
  * Copyright (c) 2012 Database Group, Computer Sciences Department, University of Wisconsin-Madison.
  */
-#include <vector>
+#include <stack>
 #include "btree.h"
 #include "filescan.h"
 #include "exceptions/bad_index_info_exception.h"
@@ -111,12 +111,12 @@ namespace badgerdb
                 {
                     root->keyArray[i] = 0;
                 }
-                Page* temp;
-                PageId toAdd;
+                Page* page;
+                PageId pageID;
                 LeafNodeInt* leaf;
-                bufMgr->allocPage(file, toAdd, temp);
-                root->pageNoArray[0] = toAdd;
-                leaf = (LeafNodeInt*) temp;
+                bufMgr->allocPage(file, pageID, page);
+                root->pageNoArray[0] = pageID;
+                leaf = (LeafNodeInt*) page;
                 for(unsigned int i = 0; i < INTARRAYLEAFSIZE; i++)
                 {
                     leaf->keyArray[i] = 0;
@@ -223,6 +223,7 @@ namespace badgerdb
         if (this->attributeType == 0)
         {
             //FIND THE FUCKING PAGEID
+            std::stack<PageId>stack;
             int keyInt = *(int*)key;
             PageId currentId = this->rootPageNum;
             Page * page;
@@ -234,17 +235,22 @@ namespace badgerdb
                 bufMgr->unPinPage(file, currentId, false);
                 NonLeafNodeInt * node = (NonLeafNodeInt *) page;
                 bool found = false;
+                //Note the second else if maynot be needed or could be made cleaner
                 for (int i = 0; i < INTARRAYNONLEAFSIZE && !found; i++)
                 {
                     int currentKey = node->keyArray[i];
                     if (currentKey == 0 || keyInt <= currentKey)
                     {
+                        stack.push(currentId);
+
                         found = true;
                         currentId = node->pageNoArray[i];
                         saveIndex = i;
                     }
                     else if (i == INTARRAYNONLEAFSIZE - 1)
                     {
+                        stack.push(currentId);
+
                         currentId = node->pageNoArray[INTARRAYNONLEAFSIZE];
                         saveIndex = INTARRAYNONLEAFSIZE;
                     }
@@ -301,6 +307,12 @@ namespace badgerdb
             //FUCK ITS FULL
             else
             {
+                //current node is called node
+                Page * newPage;
+                LeafNodeInt * leafNodeNew;
+                PageId newPageId;
+                bufMgr->allocPage(file, newPageId, newPage);
+                
                 
             }
             
