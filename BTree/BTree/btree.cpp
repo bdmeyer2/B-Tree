@@ -569,9 +569,133 @@ namespace badgerdb
                                      const void* highValParm,
                                      const Operator highOpParm)
     {
+        if(scanExecuting)
+        {
+            endScan();
+        }
+        lowOp = lowOpParm;
+        highOp = highOpParm;
         
-    }
+        if((highOp != LT && highOp != LTE)|| (lowOp != GT && lowOp != GTE) )
+        {
+            throw BadOpcodesException();
+        }
+        
+        scanExecuting = true;
+        nextEntry = 0;
+        currentPageNum = rootPageNum;
+        //INTEGER
+        
+        if (this->attributeType == 0)
+        {
+            lowValInt = *(int *)lowValParm;
+            highValInt = *(int *)highValParm;
+            if (lowValInt > highValInt)
+            {
+                throw BadScanrangeException();
+            }
+            NonLeafNodeInt * node;
+            currentPageNum = rootPageNum;
+            bufMgr->readPage(file, currentPageNum, currentPageData);
+            bufMgr->unPinPage(file, currentPageNum, currentPageData);
+            node = (NonLeafNodeInt *) currentPageData;
+            while (node->level != 1)
+            {
+                bufMgr->readPage(file, currentPageNum, currentPageData);
+                bufMgr->unPinPage(file, currentPageNum, false);
+                NonLeafNodeInt * node = (NonLeafNodeInt *) currentPageData;
+                bool found = false;
+                std::cout << node->level << "\n";
+                //Note the second else if may not be needed or could be made cleaner
+                for (int i = 0; i < INTARRAYNONLEAFSIZE && !found; i++)
+                {
+                    std::cout << node->keyArray[i] << "\n";
+                    if (lowValInt <= node->keyArray[i])
+                    {
+                        currentPageNum = node->pageNoArray[i];
+                        found = true;
+                    }
+                    if(node->keyArray[i] == 0)
+                    {
+                        currentPageNum = node->pageNoArray[i + 1];
+                        found = true;
+                    }
+                    if (i == INTARRAYNONLEAFSIZE - 1)
+                    {
+                        currentPageNum = node->pageNoArray[INTARRAYNONLEAFSIZE];
+                        found = true;
+                    }
+                }
+            }
+            //REPIN IT
+            bufMgr->readPage(file, currentPageNum, currentPageData);
+            LeafNodeInt * leafNode = (LeafNodeInt *) currentPageData;
+            bool found = false;
+            while (!found)
+            {
+                for(int i = 0; i < INTARRAYLEAFSIZE && !found; i++)
+                {
+                    if(leafNode->keyArray[i] == highValInt)
+                    {
+                        if(highOp != LTE)
+                        {
+                            throw NoSuchKeyFoundException();
+                        }
+                        else
+                        {
+                            found = true;
+                        }
+                    }
+                    if(leafNode->keyArray[i] == lowValInt)
+                    {
+                        if(lowOp != GTE)
+                        {
+                            throw NoSuchKeyFoundException();
+                        }
+                        else
+                        {
+                            found = true;
+                        }
+                    }
+                    if(leafNode->keyArray[i] < highValInt && leafNode->keyArray[i] > lowValInt)
+                    {
+                        found = true;
+                    }
+                    if(leafNode->keyArray[i] > highValInt)
+                    {
+                        throw NoSuchKeyFoundException();
+                    }
+                }
+                if (!found)
+                {
+                    bufMgr->unPinPage(file, currentPageNum, false);
+                    if (leafNode->rightSibPageNo == 0)
+                    {
+                        throw NoSuchKeyFoundException();
+                    }
+                    currentPageNum = leafNode->rightSibPageNo;
+                    bufMgr->readPage(file, currentPageNum, currentPageData);
+                }
+            }
+        }
+        //DOUBLE
+        else if (this->attributeType == 1)
+        {
+        
+        }
+        //STRING
+        else if (this->attributeType == 2)
+        {
+        
+        }
+        //ERROR
+        else
+        {
+        
+        }
     
+    }
+
     // -----------------------------------------------------------------------------
     // BTreeIndex::scanNext
     // -----------------------------------------------------------------------------
