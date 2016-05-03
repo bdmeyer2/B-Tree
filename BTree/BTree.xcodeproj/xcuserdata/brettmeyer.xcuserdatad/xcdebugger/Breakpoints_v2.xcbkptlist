@@ -10,11 +10,11 @@
             ignoreCount = "0"
             continueAfterRunningActions = "No"
             filePath = "BTree/btree.cpp"
-            timestampString = "483747808.56377"
+            timestampString = "484007817.03653"
             startingColumnNumber = "9223372036854775807"
             endingColumnNumber = "9223372036854775807"
-            startingLineNumber = "634"
-            endingLineNumber = "634"
+            startingLineNumber = "571"
+            endingLineNumber = "571"
             landmarkName = "BTreeIndex::startScan(const void* lowValParm, const Operator lowOpParm, const void* highValParm, const Operator highOpParm)"
             landmarkType = "5">
          </BreakpointContent>
@@ -26,11 +26,11 @@
             ignoreCount = "0"
             continueAfterRunningActions = "No"
             filePath = "BTree/btree.cpp"
-            timestampString = "483747808.56377"
+            timestampString = "484007817.03653"
             startingColumnNumber = "9223372036854775807"
             endingColumnNumber = "9223372036854775807"
-            startingLineNumber = "638"
-            endingLineNumber = "638"
+            startingLineNumber = "601"
+            endingLineNumber = "601"
             landmarkName = "BTreeIndex::startScan(const void* lowValParm, const Operator lowOpParm, const void* highValParm, const Operator highOpParm)"
             landmarkType = "5">
          </BreakpointContent>
@@ -42,12 +42,28 @@
             ignoreCount = "0"
             continueAfterRunningActions = "No"
             filePath = "BTree/btree.cpp"
-            timestampString = "483747805.139787"
+            timestampString = "484007817.03653"
             startingColumnNumber = "9223372036854775807"
             endingColumnNumber = "9223372036854775807"
-            startingLineNumber = "604"
-            endingLineNumber = "604"
-            landmarkName = "BTreeIndex::startScan(const void* lowValParm, const Operator lowOpParm, const void* highValParm, const Operator highOpParm)"
+            startingLineNumber = "259"
+            endingLineNumber = "259"
+            landmarkName = "BTreeIndex::insertEntry(const void *key, const RecordId rid)"
+            landmarkType = "5">
+         </BreakpointContent>
+      </BreakpointProxy>
+      <BreakpointProxy
+         BreakpointExtensionID = "Xcode.Breakpoint.FileBreakpoint">
+         <BreakpointContent
+            shouldBeEnabled = "No"
+            ignoreCount = "0"
+            continueAfterRunningActions = "No"
+            filePath = "BTree/btree.cpp"
+            timestampString = "483987002.202269"
+            startingColumnNumber = "9223372036854775807"
+            endingColumnNumber = "9223372036854775807"
+            startingLineNumber = "62"
+            endingLineNumber = "62"
+            landmarkName = "BTreeIndex::BTreeIndex(const std::string &amp; relationName, std::string &amp; outIndexName, BufMgr *bufMgrIn, const int attrByteOffset, const Datatype attrType)"
             landmarkType = "5">
          </BreakpointContent>
       </BreakpointProxy>
@@ -58,12 +74,76 @@
             ignoreCount = "0"
             continueAfterRunningActions = "No"
             filePath = "BTree/btree.cpp"
-            timestampString = "483747960.054902"
+            timestampString = "483987003.282188"
             startingColumnNumber = "9223372036854775807"
             endingColumnNumber = "9223372036854775807"
-            startingLineNumber = "620"
-            endingLineNumber = "620"
-            landmarkName = "BTreeIndex::startScan(const void* lowValParm, const Operator lowOpParm, const void* highValParm, const Operator highOpParm)"
+            startingLineNumber = "94"
+            endingLineNumber = "94"
+            landmarkName = "BTreeIndex::BTreeIndex(const std::string &amp; relationName, std::string &amp; outIndexName, BufMgr *bufMgrIn, const int attrByteOffset, const Datatype attrType)"
+            landmarkType = "5">
+         </BreakpointContent>
+      </BreakpointProxy>
+      <BreakpointProxy
+         BreakpointExtensionID = "Xcode.Breakpoint.FileBreakpoint">
+         <BreakpointContent
+            shouldBeEnabled = "Yes"
+            ignoreCount = "0"
+            continueAfterRunningActions = "No"
+            filePath = "BTree/btree.cpp"
+            timestampString = "484007817.03653"
+            startingColumnNumber = "9223372036854775807"
+            endingColumnNumber = "9223372036854775807"
+            startingLineNumber = "192"
+            endingLineNumber = "192"
+            landmarkName = "BTreeIndex::BTreeIndex(const std::string &amp; relationName, std::string &amp; outIndexName, BufMgr *bufMgrIn, const int attrByteOffset, const Datatype attrType)"
+            landmarkType = "5">
+         </BreakpointContent>
+      </BreakpointProxy>
+      <BreakpointProxy
+         BreakpointExtensionID = "Xcode.Breakpoint.FileBreakpoint">
+         <BreakpointContent
+            shouldBeEnabled = "Yes"
+            ignoreCount = "0"
+            continueAfterRunningActions = "No"
+            filePath = "BTree/btree.cpp"
+            timestampString = "484007817.03653"
+            startingColumnNumber = "9223372036854775807"
+            endingColumnNumber = "9223372036854775807"
+            startingLineNumber = "202"
+            endingLineNumber = "202"
+            landmarkName = "BTreeIndex::BTreeIndex(const std::string &amp; relationName, std::string &amp; outIndexName, BufMgr *bufMgrIn, const int attrByteOffset, const Datatype attrType)"
+            landmarkType = "5">
+         </BreakpointContent>
+      </BreakpointProxy>
+      <BreakpointProxy
+         BreakpointExtensionID = "Xcode.Breakpoint.FileBreakpoint">
+         <BreakpointContent
+            shouldBeEnabled = "Yes"
+            ignoreCount = "0"
+            continueAfterRunningActions = "No"
+            filePath = "BTree/btree.cpp"
+            timestampString = "484007817.03653"
+            startingColumnNumber = "9223372036854775807"
+            endingColumnNumber = "9223372036854775807"
+            startingLineNumber = "130"
+            endingLineNumber = "130"
+            landmarkName = "BTreeIndex::BTreeIndex(const std::string &amp; relationName, std::string &amp; outIndexName, BufMgr *bufMgrIn, const int attrByteOffset, const Datatype attrType)"
+            landmarkType = "5">
+         </BreakpointContent>
+      </BreakpointProxy>
+      <BreakpointProxy
+         BreakpointExtensionID = "Xcode.Breakpoint.FileBreakpoint">
+         <BreakpointContent
+            shouldBeEnabled = "Yes"
+            ignoreCount = "0"
+            continueAfterRunningActions = "No"
+            filePath = "BTree/btree.cpp"
+            timestampString = "484008054.085698"
+            startingColumnNumber = "9223372036854775807"
+            endingColumnNumber = "9223372036854775807"
+            startingLineNumber = "199"
+            endingLineNumber = "199"
+            landmarkName = "BTreeIndex::BTreeIndex(const std::string &amp; relationName, std::string &amp; outIndexName, BufMgr *bufMgrIn, const int attrByteOffset, const Datatype attrType)"
             landmarkType = "5">
          </BreakpointContent>
       </BreakpointProxy>

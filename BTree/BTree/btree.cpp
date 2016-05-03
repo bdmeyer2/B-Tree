@@ -54,7 +54,7 @@ namespace badgerdb
         this->bufMgr = bufMgrIn;
         this->attributeType = attrType;
         this->attrByteOffset = attrByteOffset;
-        
+        this->scanExecuting = false;
         std::ostringstream idxStr;
         idxStr << relationName << '.' << attrByteOffset;
         std::string indexName = idxStr.str( ); // indexName is the name of the index file
@@ -78,42 +78,52 @@ namespace badgerdb
             this->leafOccupancy = STRINGARRAYLEAFSIZE;
             this->nodeOccupancy = STRINGARRAYNONLEAFSIZE;
         }
-        //ERROR
-        else
-        {
-            std::cout << "ERROR in BTreeIndex constructor: Datatype must equal INTEGER(0) DOUBLE(1) STRING(2)\n";
-        }
-        
+
         try
         {
             //Create blob file constructor will throw if file does not exist
+            try{
+                File::remove(outIndexName);
+            }
+            catch (FileNotFoundException e)
+            {
+                std::cout << "FILE NOT FOUND EXCEPTION CAUGHT\n";
+            }
             this->file = new BlobFile(outIndexName, false);
-            
-            //File does exist
-            //Page 1 is meta data page
-            //Get page 1 for its indexMetaInfo
-            Page * page;
-            bufMgr->readPage(file, 1, page);
-            IndexMetaInfo * meta;
-            meta = (IndexMetaInfo *)page;
-            //Set rootPageNum
-            this->rootPageNum = meta->rootPageNo;
-            //Set IndexMetaInfo byte offset
-            meta->attrByteOffset = attrByteOffset;
-            //Set IndexMetaInfo relation name
-            strcpy(meta->relationName, relationName.c_str());
-            //Set IndexMetaInfo DataType (DO WE NEED THIS?)
-            meta->attrType = attrType;
-            //Unpin because if we construct to many pages in a row we would run out of buffer space
-            bufMgr->unPinPage(file, 1, false);
-            //No scan is executing
+            //set data members
+            IndexMetaInfo* metaPage;
+            Page* meta;
+           //PageId id;
+           //Page* page;
+            bufMgr->readPage(file, 1, meta); // page 1 should be meta page
+            //bufMgr->allocPage(file, id, page);
+            metaPage = (IndexMetaInfo*) meta;
+            //set rootPageNo to 2
+            //manally set each page for B+ tree
+            this->rootPageNum = 2;
+            metaPage->rootPageNo = this->rootPageNum;
+            metaPage->attrByteOffset = attrByteOffset;
+            strcpy(metaPage->relationName, relationName.c_str());
+            bufMgr->unPinPage(file, 1, true);
             this->scanExecuting = false;
         }
         //File does not exist
         catch (FileNotFoundException e)
         {
+            
             //Create new file
             this->file = new BlobFile(outIndexName, true);
+            //SET UP THE META INFO PAGE
+            Page * metaPage;
+            PageId metaPageId = 1;
+            bufMgr->allocPage(file, metaPageId, metaPage);
+            IndexMetaInfo * metaInfo;
+            
+            metaInfo = (IndexMetaInfo *) metaPage;
+            strcpy(metaInfo->relationName, relationName.c_str());
+            metaInfo->attrByteOffset = attrByteOffset;
+            metaInfo->attrType = attrType;
+            
             PageId rootId;
             Page * rootPage;
             bufMgr->allocPage(file, rootId, rootPage);
@@ -126,7 +136,7 @@ namespace badgerdb
                 root->level = 1;
                 for (int i = 0; i < INTARRAYNONLEAFSIZE; i++)
                 {
-                    root->keyArray[i] = 0;
+                    root->keyArray[i] = NULL;
                 }
                 Page* page;
                 PageId pageID;
@@ -136,9 +146,9 @@ namespace badgerdb
                 leaf = (LeafNodeInt*) page;
                 for(unsigned int i = 0; i < INTARRAYLEAFSIZE; i++)
                 {
-                    leaf->keyArray[i] = 0;
+                    leaf->keyArray[i] = NULL;
                 }
-                leaf->rightSibPageNo = 0;
+                leaf->rightSibPageNo = NULL;
             }
             //DOUBLE
             else if (this->attributeType == 1)
@@ -147,7 +157,7 @@ namespace badgerdb
                 root->level = 1;
                 for (int i = 0; i < INTARRAYNONLEAFSIZE; i++)
                 {
-                    root->keyArray[i] = 0;
+                    root->keyArray[i] = NULL;
                 }
                 Page* temp;
                 PageId toAdd;
@@ -157,9 +167,9 @@ namespace badgerdb
                 leaf = (LeafNodeDouble*) temp;
                 for(unsigned int i = 0; i < INTARRAYLEAFSIZE; i++)
                 {
-                    leaf->keyArray[i] = 0;
+                    leaf->keyArray[i] = NULL;
                 }
-                leaf->rightSibPageNo = 0;
+                leaf->rightSibPageNo = NULL;
             }
             //STRING
             else if (this->attributeType == 2)
@@ -173,17 +183,8 @@ namespace badgerdb
             }
             bufMgr->unPinPage(file, rootId, false);
             
-            //SET UP THE META INFO PAGE
-            Page * metaPage;
-            PageId metaPageId = 1;
-            bufMgr->allocPage(file, metaPageId, metaPage);
-            IndexMetaInfo * metaInfo;
-            
-            metaInfo = (IndexMetaInfo *) metaPage;
-            strcpy(metaInfo->relationName, relationName.c_str());
-            metaInfo->attrByteOffset = attrByteOffset;
-            metaInfo->attrType = attrType;
-            metaInfo->rootPageNo = metaPageId;
+ 
+            metaInfo->rootPageNo = rootId;
             
             bufMgr->unPinPage(file, metaPageId, false);
             
@@ -203,7 +204,7 @@ namespace badgerdb
             }
             catch (EndOfFileException e)
             {
-                // Index has completed
+                std::cout << "END OF FILE EXCEPTION CAUGHT\n";
             }
         }
     }
@@ -239,7 +240,7 @@ namespace badgerdb
         //INTEGER
         if (this->attributeType == 0)
         {
-            //FIND THE FUCKING PAGEID
+            //FIND THE PAGEID
             std::stack<PageId>stack;
             int keyInt = *(int*)key;
             PageId currentId = this->rootPageNum;
@@ -256,7 +257,7 @@ namespace badgerdb
                 for (int i = 0; i < INTARRAYNONLEAFSIZE && !found; i++)
                 {
                     int currentKey = node->keyArray[i];
-                    if (currentKey == 0 || keyInt <= currentKey)
+                    if (currentKey == NULL || keyInt <= currentKey)
                     {
                         stack.push(currentId);
 
@@ -288,7 +289,7 @@ namespace badgerdb
             for(int i = 0; i < leafOccupancy || !full; i++)
             {
                 
-                if(node->ridArray[i].page_number == 0)
+                if(node->ridArray[i].page_number == NULL)
                 {
                     full = false;
                     freeIndex = i;
@@ -321,7 +322,7 @@ namespace badgerdb
                 }
                 bufMgr->unPinPage(file, currentId, true);//page dirtied
             }
-            //FUCK ITS FULL
+            // ITS FULL
             else
             {
                 //create new node and split values, pushKeyUp is the key to insert into parent
@@ -334,10 +335,10 @@ namespace badgerdb
                 newLeafNode->rightSibPageNo = node->rightSibPageNo;
                 node->rightSibPageNo = newPageId;
                 RecordId blankRID;
-                blankRID.page_number = 0;
+                blankRID.page_number = NULL;
                 for(int i = 0; i < leafOccupancy; i++)
                 {
-                    newLeafNode->keyArray[i] = 0;
+                    newLeafNode->keyArray[i] = NULL;
                     newLeafNode->ridArray[i] = blankRID;
                 }
                 RecordId newRidArr [INTARRAYLEAFSIZE + 1];
@@ -368,13 +369,12 @@ namespace badgerdb
                     midIndex = ((INTARRAYLEAFSIZE + 1) / 2) + 1;
                 }
                 
-                
                 int k = 0;
                 for (int i = midIndex; i < INTARRAYLEAFSIZE + 1; i++)
                 {
                     if (i < INTARRAYLEAFSIZE)
                     {
-                        node->keyArray[i] = 0;
+                        node->keyArray[i] = NULL;
                         node->ridArray[i] = blankRID;
                         newLeafNode->keyArray[k] = newKeyArr[i];
                         newLeafNode->ridArray[k] = newRidArr[i];
@@ -403,8 +403,7 @@ namespace badgerdb
                     node = (LeafNodeInt *) temp;
                     for(int i = 0; i < leafOccupancy || !full; i++)
                     {
-                        
-                        if(node->ridArray[i].page_number == 0)
+                        if(node->ridArray[i].page_number == NULL)
                         {
                             full = false;
                             freeIndex = i;
@@ -458,8 +457,8 @@ namespace badgerdb
                         
                         for(int i = 0; i < INTARRAYNONLEAFSIZE; i++)
                         {
-                            newNonLeafNode->keyArray[i] = 0;
-                            newNonLeafNode->pageNoArray[i] = 0;
+                            newNonLeafNode->keyArray[i] = NULL;
+                            newNonLeafNode->pageNoArray[i] = NULL;
                         }
                         int newKeyArr [INTARRAYNONLEAFSIZE + 1];
                         int newPageNoArray [INTARRAYNONLEAFSIZE + 2];
@@ -495,8 +494,8 @@ namespace badgerdb
                         {
                             if (i < INTARRAYNONLEAFSIZE)
                             {
-                                node->keyArray[i] = 0;
-                                node->pageNoArray[i] = 0;
+                                node->keyArray[i] = NULL;
+                                node->pageNoArray[i] = NULL;
                                 newNonLeafNode->keyArray[k] = newKeyArr[i];
                                 newNonLeafNode->pageNoArray[k] = newPageNoArray[i];
                             }
@@ -523,7 +522,7 @@ namespace badgerdb
                             newNode->keyArray[0] = pushUpKey;
                             for(int i = 1; i < INTARRAYNONLEAFSIZE; i++)
                             {
-                                newNode->keyArray[i] = 0;
+                                newNode->keyArray[i] = NULL;
                             }
                             newNode->pageNoArray[0] = currentId;
                             newNode->pageNoArray[1] = newPageId;
@@ -599,7 +598,7 @@ namespace badgerdb
             bufMgr->readPage(file, currentPageNum, currentPageData);
             bufMgr->unPinPage(file, currentPageNum, currentPageData);
             node = (NonLeafNodeInt *) currentPageData;
-            while (node->level != 1)
+            while (node->level == 0)
             {
                 bufMgr->readPage(file, currentPageNum, currentPageData);
                 bufMgr->unPinPage(file, currentPageNum, false);
@@ -615,7 +614,7 @@ namespace badgerdb
                         currentPageNum = node->pageNoArray[i];
                         found = true;
                     }
-                    if(node->keyArray[i] == 0)
+                    if(node->keyArray[i] == NULL)
                     {
                         currentPageNum = node->pageNoArray[i + 1];
                         found = true;
@@ -669,7 +668,7 @@ namespace badgerdb
                 if (!found)
                 {
                     bufMgr->unPinPage(file, currentPageNum, false);
-                    if (leafNode->rightSibPageNo == 0)
+                    if (leafNode->rightSibPageNo == NULL)
                     {
                         throw NoSuchKeyFoundException();
                     }
@@ -714,10 +713,6 @@ namespace badgerdb
         
     }
     
-    //SPLIT LEAF
-    
-    //SPLIT NONLEAF
-    //create new node and split values, pushKeyUp is the key to insert into parent
     
 
 }

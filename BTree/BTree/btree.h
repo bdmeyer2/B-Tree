@@ -468,7 +468,8 @@ class BTreeIndex {
 	 * @throws ScanNotInitializedException If no scan has been initialized.
 	**/
 	const void endScan();
-	
+
+
 };
 
 }
