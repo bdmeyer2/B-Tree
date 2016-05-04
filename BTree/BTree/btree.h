@@ -468,7 +468,11 @@ class BTreeIndex {
 	 * @throws ScanNotInitializedException If no scan has been initialized.
 	**/
 	const void endScan();
-
+    
+    const bool leafFullInt(const LeafNodeInt * leafNode, int & freeIndex);
+    const bool nonLeafFullInt(const NonLeafNodeInt * nonLeafNode, int & freeIndex);
+    const void splitLeafNodeInt(LeafNodeInt * leafNode, LeafNodeInt * newLeafNode, const PageId newLeafNodePageId,
+                                int & keyInt, RecordId rid, int & pushUpKey);
 
 };
 

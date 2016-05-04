@@ -41,27 +41,27 @@ namespace badgerdb
         //get name of index
         std::ostringstream idxStr;
         idxStr << relationName << "." << attrByteOffset;
-        outIndexName = idxStr.str(); // indexName is the name of the index file
+        outIndexName = idxStr.str();
         
-        //setting private vars
-        bufMgr = bufMgrIn;
-        BTreeIndex::attrByteOffset = attrByteOffset;
-        attributeType = attrType;
-        scanExecuting = false; //NOTHING SHOULD BE SCANNING THE INDEX @ THIS POINT.
-        switch (attributeType) {
-            case INTEGER:
-                leafOccupancy = INTARRAYLEAFSIZE;
-                nodeOccupancy = INTARRAYNONLEAFSIZE;
-                break;
-            case DOUBLE:
-                leafOccupancy = DOUBLEARRAYLEAFSIZE;
-                nodeOccupancy = DOUBLEARRAYNONLEAFSIZE;
-                break;
-            case STRING:
-                leafOccupancy = STRINGARRAYLEAFSIZE;
-                nodeOccupancy = STRINGARRAYNONLEAFSIZE;
-                break;
-                
+        //setting fields
+        this->bufMgr = bufMgrIn;
+        this->BTreeIndex::attrByteOffset = attrByteOffset;
+        this->attributeType = attrType;
+        this->scanExecuting = false;
+        if (this->attributeType == 0)
+        {
+            this->leafOccupancy = INTARRAYLEAFSIZE;
+            this->nodeOccupancy = INTARRAYNONLEAFSIZE;
+        }
+        else if (this->attributeType == 1)
+        {
+            this->leafOccupancy = DOUBLEARRAYLEAFSIZE;
+            this->nodeOccupancy = DOUBLEARRAYNONLEAFSIZE;
+        }
+        else if (this->attributeType == 2)
+        {
+            this->leafOccupancy = STRINGARRAYLEAFSIZE;
+            this->nodeOccupancy = STRINGARRAYNONLEAFSIZE;
         }
         
         try
@@ -72,155 +72,135 @@ namespace badgerdb
         {
             std::cout << "FILE NOT FOUND EXCEPTION CAUGHT\n";
         }
-        //indexFile exists?
-        std::cout << "indexFile " << outIndexName << " exists? " << std::endl;
+        //Does the index file exist?
+        std::cout << "indexFile " << outIndexName << " exists?\n";
         try {
-            //NUP
+            //START: CREATE NEW INDEX FILE
             file = new BlobFile(outIndexName, true); //create new
-            std::cout << "NUP" << std::endl;
-            Page *empty_header_page, *empty_root_page;
+            std::cout << outIndexName << "does not exist.\n";
+            Page * headerPage;
+            Page * rootPage;
             
-            bufMgr->allocPage(file, headerPageNum,
-                              empty_header_page); //alloc an empty page for metadata, set headerPageNum
-            bufMgr->unPinPage(file, headerPageNum, true); //not needed anymore => unpin
-            bufMgr->allocPage(file, rootPageNum,
-                              empty_root_page); //alloc initial empty leaf node root, set rootPageNum
-            bufMgr->unPinPage(file, rootPageNum, true); //not needed anymore => unpin
+            bufMgr->allocPage(file, headerPageNum, headerPage); //alloc an empty page for metadata, set headerPageNum
+            bufMgr->allocPage(file, rootPageNum, rootPage); //alloc initial empty leaf node root, set rootPageNum
+            
+            //initialize meta page
+            IndexMetaInfo * meta = (IndexMetaInfo *) headerPage;
+            std::copy(relationName.begin(), relationName.end(), meta->relationName);
+            meta->attrByteOffset = this->attrByteOffset;
+            meta->attrType = this->attributeType;
+            meta->rootPageNo = this->rootPageNum;
             
             //initialize root page
-            switch(attributeType) {
-                    
-                case INTEGER: {
-                    LeafNodeInt *root = (LeafNodeInt *) empty_root_page;
-                    RecordId blankRID;
-                    blankRID.page_number = -1;
-                    for (int i = 0; i < INTARRAYLEAFSIZE; i++) {
-                        root->keyArray[i] = -1;
-                        root->ridArray[i] = blankRID;
-                    }
-                    root->rightSibPageNo = -1;
-                    break;
+            if (this->attributeType == 0)
+            {
+                LeafNodeInt *root = (LeafNodeInt *) rootPage;
+                RecordId blankRID;
+                blankRID.page_number = -1;
+                for (int i = 0; i < this->leafOccupancy; i++) {
+                    root->keyArray[i] = -1;
+                    root->ridArray[i] = blankRID;
                 }
-                case DOUBLE:
+                root->rightSibPageNo = -1;
+            }
+            else if (this->attributeType == 1)
+            {
+                LeafNodeDouble *root = (LeafNodeDouble *) rootPage;
+                RecordId blankRID;
+                blankRID.page_number = 0;
+                for (int i = 0; i < this->leafOccupancy; i++)
                 {
-                    LeafNodeDouble *root = (LeafNodeDouble *) empty_root_page;
-                    RecordId blankRID;
-                    blankRID.page_number = 0;
-                    for (int i = 0; i < DOUBLEARRAYLEAFSIZE; i++) {
-                        root->ridArray[i] = blankRID;
-                    }
-                    root->rightSibPageNo = 0;
-                    break;
+                    root->keyArray[i] = -1;
+                    root->ridArray[i] = blankRID;
                 }
-                case STRING:
+                root->rightSibPageNo = 0;
+            }
+            else if (this->attributeType == 2)
+            {
+                LeafNodeString *root = (LeafNodeString *) rootPage;
+                RecordId blankRID;
+                blankRID.page_number = 0;
+                for (int i = 0; i < this->leafOccupancy; i++)
                 {
-                    LeafNodeString *root = (LeafNodeString *) empty_root_page;
-                    RecordId blankRID;
-                    blankRID.page_number = 0;
-                    for (int i = 0; i < STRINGARRAYLEAFSIZE; i++) {
-                        root->ridArray[i] = blankRID;
-                    }
-                    root->rightSibPageNo = 0;
-                    break;
+                    //root->keyArray[i] = "";
+                    root->ridArray[i] = blankRID;
                 }
-                default:
-                    break;
+                root->rightSibPageNo = 0;
             }
             
             
-            //initialize meta_info
-            IndexMetaInfo *meta_info = (IndexMetaInfo *) empty_header_page;
-            std::copy(relationName.begin(), relationName.end(), meta_info->relationName);
-            meta_info->attrByteOffset = attrByteOffset;
-            meta_info->attrType = attrType;
-            meta_info->rootPageNo = rootPageNum;
+
+            //START: INSERT RECORDS AND KEYS INTO TREE
+            std::cout << "Initialize Tree\n";
             
-            //init tree
-            //treeInit(relationName, bufMgr);
-            //fill the tree using filescan
-            std::cout << "treeInit\n";
-            
-            //scanning the record 1 by 1
             FileScan fscan(relationName, bufMgr);
             
             try
             {
                 RecordId scanRid;
-                while(1)
+                while(true)
                 {
                     
                     fscan.scanNext(scanRid);
-                    //Assuming RECORD.i is our key, lets extract the key, which we know is INTEGER and whose byte offset is also know inside the record.
                     std::string recordStr = fscan.getRecord();
                     const char *record = recordStr.c_str();
-                    
-                    //extracting the key
-                    switch(BTreeIndex::attributeType){
-                        case INTEGER:
-                        {
-                            int key = *((int*)(record + attrByteOffset));
-                            std::cout << "INSERATING key: " << key << "\n";
-                            BTreeIndex::insertEntry(&key, scanRid);
-                        }
-                            break;
-                        case DOUBLE:
-                        {
-                            double key = *((double*)(record + attrByteOffset));
-                            std::cout << "INSERATING key: " << key << "\n";
-                            BTreeIndex::insertEntry(&key, scanRid);
-                        }
-                            break;
-                        case STRING:
-                        {
-                            
-                            char uniqkey[10];
-                            std::string key = std::string((char*)(record + attrByteOffset));
-                            key.copy(uniqkey, sizeof(uniqkey));
-                            std::cout << "INSERATING key: " << key << "\n";
-                            BTreeIndex::insertEntry(&key, scanRid);
-                            
-                        }
-                            break;
-                        default:
-                            break;
-                            
+                    if (this->attributeType == 0)
+                    {
+                        int key = *((int*)(record + attrByteOffset));
+                        std::cout << "Insert key: " << key << "\n";
+                        BTreeIndex::insertEntry(&key, scanRid);
+                    }
+                    if (this->attributeType == 1)
+                    {
+                        double key = *((double*)(record + attrByteOffset));
+                        std::cout << "Insert key: " << key << "\n";
+                        BTreeIndex::insertEntry(&key, scanRid);
+                    }
+                    if (this->attributeType == 2)
+                    {
+                        char uniqueKey[10];
+                        std::string key = std::string((char*)(record + attrByteOffset));
+                        key.copy(uniqueKey, sizeof(uniqueKey));
+                        std::cout << "Insert key: " << key << "\n";
+                        BTreeIndex::insertEntry(&key, scanRid);
                     }
                 }
             }
             catch(EndOfFileException e)
             {
-                std::cout << "Read all records" << std::endl;
+                std::cout << "Tree done being initialized" << std::endl;
+            }
+            //END: INSERT RECORDS AND KEYS INTO TREE
+            
+            bufMgr->unPinPage(file, headerPageNum, true);
+            bufMgr->unPinPage(file, rootPageNum, true);
+            bufMgr->flushFile(file);
+            
+        } //END: CREATE NEW INDEX FILE
+        //START: INDEX FILE EXISTS
+        catch (FileExistsException e)
+        {
+            std::cout << "yes\n";
+            file = new BlobFile(outIndexName, false);
+            headerPageNum = 1;
+            Page *headerPage;
+            bufMgr->readPage(file, headerPageNum, headerPage);
+            bufMgr->unPinPage(file, headerPageNum, false);
+            IndexMetaInfo * meta = (IndexMetaInfo *) headerPage;
+            
+            //Check to see if everything matches up for a good header
+            if (relationName.compare(meta->relationName) == 0 && meta->attrByteOffset == attrByteOffset &&
+                meta->attrType == attrType)
+            {
+                rootPageNum = meta->rootPageNo;
+            }
+            else
+            {
+                std::cout << "BAD HEADER FILE\n";
             }
             
             
-            bufMgr->flushFile(file); //flush persistent
-            
-        } catch (FileExistsException e) {
-            std::cout << "YUP" << std::endl;
-            //check metadata
-            file = new BlobFile(outIndexName, false); //no create new
-            headerPageNum = 1; //header is always at begin of file
-            
-            Page *header_page;
-            
-            bufMgr->readPage(file, headerPageNum, header_page); //get header_page
-            bufMgr->unPinPage(file, headerPageNum, false); //not needed anymore => unpin
-            
-            IndexMetaInfo *meta_info = (IndexMetaInfo *) header_page;
-            
-            if (relationName.compare(meta_info->relationName) == 0 && meta_info->attrByteOffset == attrByteOffset &&
-                meta_info->attrType == attrType) {
-                //valid header
-                //set rootpage
-                rootPageNum = meta_info->rootPageNo;
-            }
-            else {
-                throw BadIndexInfoException("Invalid Header");
-                
-            }
-            
-            
-        }
+        }//END: INDEX FILE EXISTS
 
     }
     
@@ -262,38 +242,25 @@ namespace badgerdb
                 //figure out if root is full
                 int freeIndex = -1;
                 bool full = true;
-                Page* temp;
-                bufMgr->readPage(file, this->rootPageNum, temp);
-                LeafNodeInt * leafNode;
-                leafNode = (LeafNodeInt *) temp;
-                for(int i = 0; i < nodeOccupancy || !full; i++)
-                {
-                    if(leafNode->keyArray[i] == -1)
-                    {
-                        full = false;
-                        freeIndex = i;
-                        break;
-                    }
-                }
-                if(full)
-                {
-                    freeIndex = -1;
-                }
+                Page * rootPage;
+                bufMgr->readPage(file, this->rootPageNum, rootPage);
+                LeafNodeInt * leafNode = (LeafNodeInt *) rootPage;
+                full = leafFullInt(leafNode, freeIndex);
                 //Start: If root is not full and is a leaf
                 if (!full)
                 {
                     bool done = false;
-                    for (int i = freeIndex-1; i >= 0 && !done; i--)
+                    for (int i = freeIndex; i >= 0 && !done; i--)
                     {
-                        if (leafNode->keyArray[i] > keyInt)
+                        if (leafNode->keyArray[i-1] > keyInt)
                         {
-                            leafNode->keyArray[i+1] = leafNode->keyArray[i];
-                            leafNode->ridArray[i+1] = leafNode->ridArray[i];
+                            leafNode->keyArray[i] = leafNode->keyArray[i-1];
+                            leafNode->ridArray[i] = leafNode->ridArray[i-1];
                         }
                         else
                         {
-                            leafNode->keyArray[i+1] = keyInt;
-                            leafNode->ridArray[i+1] = rid;
+                            leafNode->keyArray[i] = keyInt;
+                            leafNode->ridArray[i] = rid;
                             done = true;
                         }
                     }
@@ -302,89 +269,17 @@ namespace badgerdb
                 //start: root is full and is a leaf
                 else if (full)
                 {
-                    //BEGIN: SPLIT LEAF
                     //current node is called leafNode
                     //create new leaf node
+                    //split leaf
                     Page * newLeafNodePage;
-                    LeafNodeInt * newLeafNode;
                     PageId newLeafNodePageId;
                     bufMgr->allocPage(file, newLeafNodePageId, newLeafNodePage);
-                    newLeafNode->rightSibPageNo = leafNode->rightSibPageNo;
-                    leafNode->rightSibPageNo = newLeafNodePageId;
-                    RecordId blankrid;
-                    blankrid.page_number = -1;
-                    //initialize new leaf node
-                    for(int i = 0; i < leafOccupancy; i++)
-                    {
-                        newLeafNode->keyArray[i] = -1;
-                        newLeafNode->ridArray[i] = blankrid;
-                    }
-                    //create an array that holds all values to sort
-                    RecordId newRidArr [INTARRAYLEAFSIZE + 1];
-                    int newKeyArr [INTARRAYLEAFSIZE + 1];
-                    for (int i = 0; i < INTARRAYLEAFSIZE + 1; i++)
-                    {
-                        if (i < INTARRAYLEAFSIZE) {
-                            newRidArr[i] = leafNode->ridArray[i];
-                            newKeyArr[i] = leafNode->keyArray[i];
-                        }
-                        else if (i == INTARRAYLEAFSIZE)
-                        {
-                            newRidArr[i] = rid;
-                            newKeyArr[i] = keyInt;
-                        }
-                    }
-                    //sort the array that holds all values
-                    bool done = false;
-                    for (int i = INTARRAYLEAFSIZE; i >= 0 && !done; i++)
-                    {
-                        if (newKeyArr[i] > keyInt)
-                        {
-                            newKeyArr[i+1] = newKeyArr[i];
-                            newRidArr[i+1] = newRidArr[i];
-                        }
-                        else
-                        {
-                            newKeyArr[i+1] = keyInt;
-                            newRidArr[i+1] = rid;
-                            done = true;
-                        }
-                    }
-                    
-                    //get mid index of that array
-                    int midIndex = (INTARRAYLEAFSIZE + 1) % 2;
-                    if(midIndex == 0)
-                    {
-                        midIndex = (INTARRAYLEAFSIZE + 1) / 2;
-                    }
-                    else
-                    {
-                        midIndex = ((INTARRAYLEAFSIZE + 1) / 2) + 1;
-                    }
-                    
-                    //split that array among 2 leaf nodes
-                    int k = 0;
-                    for (int i = midIndex; i < INTARRAYLEAFSIZE + 1; i++)
-                    {
-                        if (i < INTARRAYLEAFSIZE)
-                        {
-                            leafNode->keyArray[i] = -1;
-                            leafNode->ridArray[i] = blankrid;
-                            newLeafNode->keyArray[k] = newKeyArr[i];
-                            newLeafNode->ridArray[k] = newRidArr[i];
-                        }
-                        else if (i == INTARRAYLEAFSIZE)
-                        {
-                            newLeafNode->keyArray[k] = newKeyArr[i];
-                            newLeafNode->ridArray[k] = newRidArr[i];
-                        }
-                        k++;
-                    }
-
-                    int pushUpKey = newKeyArr[midIndex];
+                    LeafNodeInt * newLeafNode = (LeafNodeInt *) newLeafNodePage;
+                    int pushUpKey = -1;
+                    splitLeafNodeInt(leafNode, newLeafNode, newLeafNodePageId, keyInt, rid, pushUpKey);
                     
                     bufMgr->unPinPage(file, newLeafNodePageId, true); //page was dirtied
-                    //END; SPLIT LEAF NODE
                     
                     //create non leaf node and insert pushUpKey
                     Page * nonLeafNodePage;
@@ -393,10 +288,11 @@ namespace badgerdb
                     NonLeafNodeInt * nonLeafNode = (NonLeafNodeInt *) nonLeafNodePage;
                     //initialize the nonLeafNode
                     nonLeafNode->level = 1;
-                    for (int i = 0; i < INTARRAYNONLEAFSIZE; i++)
+                    for (int i = 0; i < this->nodeOccupancy; i++)
                     {
                         nonLeafNode->keyArray[i] = -1;
-                        nonLeafNode->pageNoArray[i] = -1;
+                        //Pages are unsigned
+                        nonLeafNode->pageNoArray[i] = 0;
                     }
                     //insert pushUpKey into newNonLeafNode
                     nonLeafNode->keyArray[0] = pushUpKey;
@@ -425,7 +321,7 @@ namespace badgerdb
                      NonLeafNodeInt * node = (NonLeafNodeInt *) page;
                      bool found = false;
                      //Note the second else if may not be needed or could be made cleaner
-                     for (int i = 0; i < INTARRAYNONLEAFSIZE && !found; i++)
+                     for (int i = 0; i < this->nodeOccupancy && !found; i++)
                      {
                             int currentKey = node->keyArray[i];
                             if (currentKey == -1 || keyInt <= currentKey)
@@ -435,11 +331,11 @@ namespace badgerdb
                                 currentId = node->pageNoArray[i];
                                 saveIndex = i;
                             }
-                            else if (i == INTARRAYNONLEAFSIZE - 1)
+                            else if (i == this->nodeOccupancy - 1)
                             {
                                 stack.push(currentId);
-                                currentId = node->pageNoArray[INTARRAYNONLEAFSIZE];
-                                saveIndex = INTARRAYNONLEAFSIZE;
+                                currentId = node->pageNoArray[this->nodeOccupancy];
+                                saveIndex = this->nodeOccupancy;
                             }
                      }
                      if (node->level == 1)
@@ -455,17 +351,8 @@ namespace badgerdb
                 bufMgr->readPage(file, leafNodeId, leafNodePage);
                 int freeIndex = -1;
                 bool full = true;
-                LeafNodeInt * leafNode;
-                leafNode = (LeafNodeInt *) leafNodePage;
-                for(int i = 0; i < nodeOccupancy || !full; i++)
-                {
-                    if(leafNode->keyArray[i] == -1)
-                    {
-                        full = false;
-                        freeIndex = i;
-                        break;
-                    }
-                }
+                LeafNodeInt * leafNode = (LeafNodeInt *) leafNodePage;
+                full = leafFullInt(leafNode, freeIndex);
                 //this is here because it pertains to the above code block
                 if(full)
                 {
@@ -475,111 +362,37 @@ namespace badgerdb
                 if (!full)
                 {
                     bool done = false;
-                    for (int i = freeIndex-1; i >= 0 && !done; i--)
+                    for (int i = freeIndex; i >= 0 && !done; i--)
                     {
-                        if (leafNode->keyArray[i] > keyInt)
+                        if (leafNode->keyArray[i-1] > keyInt)
                         {
-                            leafNode->keyArray[i+1] = leafNode->keyArray[i];
-                            leafNode->ridArray[i+1] = leafNode->ridArray[i];
+                            leafNode->keyArray[i] = leafNode->keyArray[i-1];
+                            leafNode->ridArray[i] = leafNode->ridArray[i-1];
                         }
                         else
                         {
-                            leafNode->keyArray[i+1] = keyInt;
-                            leafNode->ridArray[i+1] = rid;
+                            leafNode->keyArray[i] = keyInt;
+                            leafNode->ridArray[i] = rid;
                             done = true;
                         }
                     }
-                    bufMgr->unPinPage(file, this->rootPageNum, true);//page changed and thus is dirty
+                    bufMgr->unPinPage(file, leafNodeId, true);//page changed and thus is dirty
                 }//END: ROOT IS A NONLEAF NODE AND LEAF NODE IS NOT FULL
                 //START: ROOT IS A NONLEAF NODE AND LEAF NODE IS FULL
                 else if (full)
                 {
-                    //BEGIN: SPLIT LEAF
                     //current node is called leafNode
                     //create new leaf node
+                    //split leaf nodes
                     Page * newLeafNodePage;
-                    LeafNodeInt * newLeafNode;
                     PageId newLeafNodePageId;
                     bufMgr->allocPage(file, newLeafNodePageId, newLeafNodePage);
-                    newLeafNode->rightSibPageNo = leafNode->rightSibPageNo;
-                    leafNode->rightSibPageNo = newLeafNodePageId;
-                    RecordId blankrid;
-                    blankrid.page_number = -1;
-                    //initialize new leaf node
-                    for(int i = 0; i < leafOccupancy; i++)
-                    {
-                        newLeafNode->keyArray[i] = -1;
-                        newLeafNode->ridArray[i] = blankrid;
-                    }
-                    //create an array that holds all values to sort
-                    RecordId newRidArr [INTARRAYLEAFSIZE + 1];
-                    int newKeyArr [INTARRAYLEAFSIZE + 1];
-                    for (int i = 0; i < INTARRAYLEAFSIZE + 1; i++)
-                    {
-                        if (i < INTARRAYLEAFSIZE) {
-                            newRidArr[i] = leafNode->ridArray[i];
-                            newKeyArr[i] = leafNode->keyArray[i];
-                        }
-                        else if (i == INTARRAYLEAFSIZE)
-                        {
-                            newRidArr[i] = rid;
-                            newKeyArr[i] = keyInt;
-                        }
-                    }
-                    //sort the array that holds all values
-                    bool done = false;
-                    for (int i = INTARRAYLEAFSIZE; i >= 0 && !done; i++)
-                    {
-                        if (leafNode->keyArray[i] > keyInt)
-                        {
-                            leafNode->keyArray[i+1] = leafNode->keyArray[i];
-                            leafNode->ridArray[i+1] = leafNode->ridArray[i];
-                        }
-                        else
-                        {
-                            leafNode->keyArray[i+1] = keyInt;
-                            leafNode->ridArray[i+1] = rid;
-                            done = true;
-                        }
-                    }
-                    
-                    //get mid index of that array
-                    int midIndex = (INTARRAYLEAFSIZE + 1) % 2;
-                    if(midIndex == 0)
-                    {
-                        midIndex = (INTARRAYLEAFSIZE + 1) / 2;
-                    }
-                    else
-                    {
-                        midIndex = ((INTARRAYLEAFSIZE + 1) / 2) + 1;
-                    }
-                    
-                    //split that array among 2 leaf nodes
-                    int k = 0;
-                    for (int i = midIndex; i < INTARRAYLEAFSIZE + 1; i++)
-                    {
-                        if (i < INTARRAYLEAFSIZE)
-                        {
-                            leafNode->keyArray[i] = -1;
-                            leafNode->ridArray[i] = blankrid;
-                            newLeafNode->keyArray[k] = newKeyArr[i];
-                            newLeafNode->ridArray[k] = newRidArr[i];
-                        }
-                        else if (i == INTARRAYLEAFSIZE)
-                        {
-                            newLeafNode->keyArray[k] = newKeyArr[i];
-                            newLeafNode->ridArray[k] = newRidArr[i];
-                        }
-                        k++;
-                    }
-                    
-                    int pushUpKey = newKeyArr[midIndex];
-                    
+                    LeafNodeInt * newLeafNode = (LeafNodeInt *) newLeafNodePage;
+                    int pushUpKey = -1;
+                    splitLeafNodeInt(leafNode, newLeafNode, newLeafNodePageId, keyInt, rid, pushUpKey);
                     bufMgr->unPinPage(file, newLeafNodePageId, true); //page was dirtied
-                    //END; SPLIT LEAF NODE
                     
-                    //THERE IS ROOM IN THE PARENT
-                    //THERE ISNT ROOM IN THE PARENT
+                    //INSERT PUSHUP KEY AND SEE IF NONLEAF NODES NEED TO SPLIT
                     done = false;
                     while (!done)
                     {
@@ -589,39 +402,30 @@ namespace badgerdb
                         bool full = true;
                         Page * nonLeafNodePage;
                         bufMgr->readPage(file, nonLeafNodeCurrentId, nonLeafNodePage);
-                        NonLeafNodeInt * nonLeafNode;
-                        nonLeafNode = (NonLeafNodeInt *) nonLeafNodePage;
-                        for(int i = 0; i < nodeOccupancy || !full; i++)
-                        {
-                            if(nonLeafNode->keyArray[i] == -1)
-                            {
-                                full = false;
-                                freeIndex = i;
-                            }
-                        }
-                        if(full)
-                        {
-                            freeIndex = -1;
-                        }
+                        NonLeafNodeInt * nonLeafNode = (NonLeafNodeInt *) nonLeafNodePage;
+                        full = nonLeafFullInt(nonLeafNode, freeIndex);
                         //if nonLeafNode has room insert
+                        bool check = false;
                         if (!full)
                         {
-                            for (int i = freeIndex-1; i >= 0 && !done; i++)
+                            for (int i = freeIndex; i >= 0 && !check; i++)
                             {
-                                if (nonLeafNode->keyArray[i] > pushUpKey)
+                                if (nonLeafNode->keyArray[i-1] > pushUpKey)
                                 {
-                                    nonLeafNode->keyArray[i+1] = nonLeafNode->keyArray[i];
-                                    nonLeafNode->pageNoArray[i+1] = nonLeafNode->pageNoArray[i];
+                                    nonLeafNode->keyArray[i] = nonLeafNode->keyArray[i-1];
+                                    nonLeafNode->pageNoArray[i] = nonLeafNode->pageNoArray[i-1];
                                 }
                                 else
                                 {
-                                    nonLeafNode->keyArray[i+1] = pushUpKey;
+                                    nonLeafNode->keyArray[i] = pushUpKey;
                                     nonLeafNode->pageNoArray[i+1] = newLeafNodePageId;
+                                    check = true;
                                 }
                             }
                             bufMgr->unPinPage(file, currentId, true);
                             done = true;
                         }
+                        //DEBUGGING IS GOOD TILL THIS POINT
                         //else nonLeafNode does not have room
                         else
                         {
@@ -642,18 +446,18 @@ namespace badgerdb
                             }
                             
                             //initialize new nonleafnode
-                            for(int i = 0; i < INTARRAYNONLEAFSIZE; i++)
+                            for(int i = 0; i < this->nodeOccupancy; i++)
                             {
                                 newNonLeafNode->keyArray[i] = -1;
                                 newNonLeafNode->pageNoArray[i] = -1;
                             }
                             
                             //create and initialize larger array to hold new key and pageid
-                            int newKeyArr [INTARRAYNONLEAFSIZE + 1];
-                            int newPageNoArray [INTARRAYNONLEAFSIZE + 2];
-                            for (int i = 0; i < INTARRAYNONLEAFSIZE + 1; i++)
+                            int newKeyArr [this->nodeOccupancy + 1];
+                            int newPageNoArray [this->nodeOccupancy + 2];
+                            for (int i = 0; i < this->nodeOccupancy + 1; i++)
                             {
-                                if (i < INTARRAYNONLEAFSIZE) {
+                                if (i < this->nodeOccupancy) {
                                     newPageNoArray[i] = nonLeafNode->pageNoArray[i];
                                     newKeyArr[i] = nonLeafNode->keyArray[i];
                                 }
@@ -661,7 +465,7 @@ namespace badgerdb
                             
                             //sort the array that holds all values
                             bool done = false;
-                            for (int i = INTARRAYNONLEAFSIZE; i >= 0 && !done; i++)
+                            for (int i = this->nodeOccupancy; i >= 0 && !done; i++)
                             {
                                 if (newKeyArr[i] > keyInt)
                                 {
@@ -676,9 +480,7 @@ namespace badgerdb
                                 }
                             }
                             //ENDED HERE
-                            qsort(newKeyArr, INTARRAYNONLEAFSIZE + 1, sizeof(int), compareInt);
-                            qsort(newPageNoArray, INTARRAYNONLEAFSIZE + 1, sizeof(PageId), compareInt);
-                            
+                            /*
                             int midIndex = (INTARRAYNONLEAFSIZE + 1) % 2;
                             if(midIndex == 0)
                             {
@@ -764,7 +566,9 @@ namespace badgerdb
                     //Set rootpagenum to this new node's pageid
                     this->rootPageNum = nonLeafNodePageId;
                     
-
+                             */
+                        }
+                    }
                 }
             }
             
@@ -1142,7 +946,7 @@ namespace badgerdb
                 bool found = false;
                 std::cout << node->level << "\n";
                 //Note the second else if may not be needed or could be made cleaner
-                for (int i = 0; i < INTARRAYNONLEAFSIZE && !found; i++)
+                for (int i = 0; i < this->nodeOccupancy && !found; i++)
                 {
                     std::cout << node->keyArray[i] << "\n";
                     if (lowValInt <= node->keyArray[i])
@@ -1155,9 +959,9 @@ namespace badgerdb
                         currentPageNum = node->pageNoArray[i + 1];
                         found = true;
                     }
-                    if (i == INTARRAYNONLEAFSIZE - 1)
+                    if (i == this->nodeOccupancy - 1)
                     {
-                        currentPageNum = node->pageNoArray[INTARRAYNONLEAFSIZE];
+                        currentPageNum = node->pageNoArray[this->nodeOccupancy];
                         found = true;
                     }
                 }
@@ -1168,7 +972,7 @@ namespace badgerdb
             bool found = false;
             while (!found)
             {
-                for(int i = 0; i < INTARRAYLEAFSIZE && !found; i++)
+                for(int i = 0; i < this->leafOccupancy && !found; i++)
                 {
                     if(leafNode->keyArray[i] == highValInt)
                     {
@@ -1249,6 +1053,128 @@ namespace badgerdb
         
     }
     
+    // -----------------------------------------------------------------------------
+    // BTreeIndex::leafFullInt
+    // -----------------------------------------------------------------------------
+    //
+    const bool BTreeIndex::leafFullInt(const LeafNodeInt * leafNode, int & freeIndex)
+    {
+        bool full = true;
+        for(int i = 0; i < this->leafOccupancy || !full; i++)
+        {
+            if(leafNode->keyArray[i] == -1)
+            {
+                full = false;
+                freeIndex = i;
+                break;
+            }
+        }
+        if(full)
+        {
+            freeIndex = -1;
+        }
+        return full;
+    }
     
-
+    // -----------------------------------------------------------------------------
+    // BTreeIndex::nonLeafFullInt
+    // -----------------------------------------------------------------------------
+    //
+    const bool BTreeIndex::nonLeafFullInt(const NonLeafNodeInt * nonLeafNode, int & freeIndex)
+    {
+        bool full = true;
+        for(int i = 0; i < this->nodeOccupancy && full; i++)
+        {
+            if(nonLeafNode->keyArray[i] == -1)
+            {
+                full = false;
+                freeIndex = i;
+            }
+        }
+        if(full)
+        {
+            freeIndex = -1;
+        }
+        return full;
+    }
+    // -----------------------------------------------------------------------------
+    // BTreeIndex::splitLeafNodeInt
+    // -----------------------------------------------------------------------------
+    //
+    const void BTreeIndex::splitLeafNodeInt(LeafNodeInt * leafNode, LeafNodeInt * newLeafNode, const PageId newLeafNodePageId,
+                                            int & keyInt, RecordId rid, int & pushUpKey)
+    {
+        newLeafNode->rightSibPageNo = leafNode->rightSibPageNo;
+        leafNode->rightSibPageNo = newLeafNodePageId;
+        RecordId blankrid;
+        blankrid.page_number = -1;
+        //initialize new leaf node
+        for(int i = 0; i < this->leafOccupancy; i++)
+        {
+            newLeafNode->keyArray[i] = -1;
+            newLeafNode->ridArray[i] = blankrid;
+        }
+        //create an array that holds all values to sort
+        RecordId newRidArr [this->leafOccupancy + 1];
+        int newKeyArr [this->leafOccupancy + 1];
+        for (int i = 0; i < this->leafOccupancy + 1; i++)
+        {
+            if (i < this->leafOccupancy) {
+                newRidArr[i] = leafNode->ridArray[i];
+                newKeyArr[i] = leafNode->keyArray[i];
+            }
+            else if (i == this->leafOccupancy)
+            {
+                newRidArr[i] = rid;
+                newKeyArr[i] = keyInt;
+            }
+        }
+        //sort the array that holds all values
+        bool done = false;
+        for (int i = this->leafOccupancy; i >= 0 && !done; i++)
+        {
+            if (newKeyArr[i-1] > keyInt)
+            {
+                newKeyArr[i] = newKeyArr[i-1];
+                newRidArr[i] = newRidArr[i-1];
+            }
+            else
+            {
+                newKeyArr[i] = keyInt;
+                newRidArr[i] = rid;
+                done = true;
+            }
+        }
+        
+        //get mid index of that array
+        int midIndex = (this->leafOccupancy + 1) % 2;
+        if(midIndex == 0)
+        {
+            midIndex = (this->leafOccupancy + 1) / 2;
+        }
+        else
+        {
+            midIndex = ((this->leafOccupancy + 1) / 2) + 1;
+        }
+        
+        //split that array among 2 leaf nodes
+        int k = 0;
+        for (int i = midIndex; i < this->leafOccupancy + 1; i++)
+        {
+            if (i < this->leafOccupancy)
+            {
+                leafNode->keyArray[i] = -1;
+                leafNode->ridArray[i] = blankrid;
+                newLeafNode->keyArray[k] = newKeyArr[i];
+                newLeafNode->ridArray[k] = newRidArr[i];
+            }
+            else if (i == this->leafOccupancy)
+            {
+                newLeafNode->keyArray[k] = newKeyArr[i];
+                newLeafNode->ridArray[k] = newRidArr[i];
+            }
+            k++;
+        }
+        pushUpKey = newKeyArr[midIndex];
+    }
 }
