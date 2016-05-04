@@ -31,7 +31,7 @@ namespace badgerdb
     // -----------------------------------------------------------------------------
     // BTreeIndex::BTreeIndex -- Constructor
     // -----------------------------------------------------------------------------
-
+    
     BTreeIndex::BTreeIndex(const std::string & relationName,
                            std::string & outIndexName,
                            BufMgr *bufMgrIn,
@@ -83,6 +83,8 @@ namespace badgerdb
             
             bufMgr->allocPage(file, headerPageNum, headerPage); //alloc an empty page for metadata, set headerPageNum
             bufMgr->allocPage(file, rootPageNum, rootPage); //alloc initial empty leaf node root, set rootPageNum
+            bufMgr->unPinPage(file, headerPageNum, true);
+            bufMgr->unPinPage(file, rootPageNum, true);
             
             //initialize meta page
             IndexMetaInfo * meta = (IndexMetaInfo *) headerPage;
@@ -101,7 +103,7 @@ namespace badgerdb
                     root->keyArray[i] = -1;
                     root->ridArray[i] = blankRID;
                 }
-                root->rightSibPageNo = -1;
+                root->rightSibPageNo = 0;
             }
             else if (this->attributeType == 1)
             {
@@ -129,7 +131,7 @@ namespace badgerdb
             }
             
             
-
+            
             //START: INSERT RECORDS AND KEYS INTO TREE
             std::cout << "Initialize Tree\n";
             
@@ -172,8 +174,6 @@ namespace badgerdb
             }
             //END: INSERT RECORDS AND KEYS INTO TREE
             
-            bufMgr->unPinPage(file, headerPageNum, true);
-            bufMgr->unPinPage(file, rootPageNum, true);
             bufMgr->flushFile(file);
             
         } //END: CREATE NEW INDEX FILE
@@ -201,7 +201,7 @@ namespace badgerdb
             
             
         }//END: INDEX FILE EXISTS
-
+        
     }
     
     
@@ -244,6 +244,7 @@ namespace badgerdb
                 bool full = true;
                 Page * rootPage;
                 bufMgr->readPage(file, this->rootPageNum, rootPage);
+                bufMgr->unPinPage(file, this->rootPageNum, true);//page changed and thus is dirty
                 LeafNodeInt * leafNode = (LeafNodeInt *) rootPage;
                 full = leafFullInt(leafNode, freeIndex);
                 //Start: If root is not full and is a leaf
@@ -264,7 +265,6 @@ namespace badgerdb
                             done = true;
                         }
                     }
-                    bufMgr->unPinPage(file, this->rootPageNum, true);//page changed and thus is dirty
                 }//end: if root is not full and is a leaf
                 //start: root is full and is a leaf
                 else if (full)
@@ -275,16 +275,16 @@ namespace badgerdb
                     Page * newLeafNodePage;
                     PageId newLeafNodePageId;
                     bufMgr->allocPage(file, newLeafNodePageId, newLeafNodePage);
+                    bufMgr->unPinPage(file, newLeafNodePageId, true); //page was dirtied
                     LeafNodeInt * newLeafNode = (LeafNodeInt *) newLeafNodePage;
                     int pushUpKey = -1;
                     splitLeafNodeInt(leafNode, newLeafNode, newLeafNodePageId, keyInt, rid, pushUpKey);
-                    
-                    bufMgr->unPinPage(file, newLeafNodePageId, true); //page was dirtied
                     
                     //create non leaf node and insert pushUpKey
                     Page * nonLeafNodePage;
                     PageId nonLeafNodePageId;
                     bufMgr->allocPage(file, nonLeafNodePageId, nonLeafNodePage);
+                    bufMgr->unPinPage(file, nonLeafNodePageId, true);
                     NonLeafNodeInt * nonLeafNode = (NonLeafNodeInt *) nonLeafNodePage;
                     //initialize the nonLeafNode
                     nonLeafNode->level = 1;
@@ -306,49 +306,50 @@ namespace badgerdb
             }//END: IF ROOT IS A LEAFNODE
             else //START: ROOT IS A NONLEAFNODE
             {
-                 //traverse the tree down to level 1
-                 std::stack<PageId>stack;
-                 int keyInt = *(int*)key;
-                 PageId currentId = this->rootPageNum;
-                 PageId leafNodeId = -1;
-                 Page * page;
-                 int saveIndex = 0;
-                 bool done = false;
-                 while (!done)
-                 {
-                     bufMgr->readPage(file, currentId, page);
-                     bufMgr->unPinPage(file, currentId, false);
-                     NonLeafNodeInt * node = (NonLeafNodeInt *) page;
-                     bool found = false;
-                     //Note the second else if may not be needed or could be made cleaner
-                     for (int i = 0; i < this->nodeOccupancy && !found; i++)
-                     {
-                            int currentKey = node->keyArray[i];
-                            if (currentKey == -1 || keyInt <= currentKey)
-                            {
-                                stack.push(currentId);
-                                found = true;
-                                currentId = node->pageNoArray[i];
-                                saveIndex = i;
-                            }
-                            else if (i == this->nodeOccupancy - 1)
-                            {
-                                stack.push(currentId);
-                                currentId = node->pageNoArray[this->nodeOccupancy];
-                                saveIndex = this->nodeOccupancy;
-                            }
-                     }
-                     if (node->level == 1)
-                     {
-                         done = true;
-                         leafNodeId = currentId;
-                         std::cout << "LeafNodeId: " << leafNodeId << std::endl;
-                     }
+                //traverse the tree down to level 1
+                std::stack<PageId>stack;
+                int keyInt = *(int*)key;
+                PageId currentId = this->rootPageNum;
+                PageId leafNodeId = -1;
+                Page * page;
+                int saveIndex = 0;
+                bool done = false;
+                while (!done)
+                {
+                    bufMgr->readPage(file, currentId, page);
+                    bufMgr->unPinPage(file, currentId, false);
+                    NonLeafNodeInt * node = (NonLeafNodeInt *) page;
+                    bool found = false;
+                    //Note the second else if may not be needed or could be made cleaner
+                    for (int i = 0; i < this->nodeOccupancy && !found; i++)
+                    {
+                        int currentKey = node->keyArray[i];
+                        if (currentKey == -1 || keyInt <= currentKey)
+                        {
+                            stack.push(currentId);
+                            found = true;
+                            currentId = node->pageNoArray[i];
+                            saveIndex = i;
+                        }
+                        else if (i == this->nodeOccupancy - 1)
+                        {
+                            stack.push(currentId);
+                            currentId = node->pageNoArray[this->nodeOccupancy];
+                            saveIndex = this->nodeOccupancy;
+                        }
+                    }
+                    if (node->level == 1)
+                    {
+                        done = true;
+                        leafNodeId = currentId;
+                        std::cout << "LeafNodeId: " << leafNodeId << std::endl;
+                    }
                 }
                 
                 //see if leaf node is full
                 Page * leafNodePage;
                 bufMgr->readPage(file, leafNodeId, leafNodePage);
+                bufMgr->unPinPage(file, leafNodeId, true);
                 int freeIndex = -1;
                 bool full = true;
                 LeafNodeInt * leafNode = (LeafNodeInt *) leafNodePage;
@@ -376,7 +377,6 @@ namespace badgerdb
                             done = true;
                         }
                     }
-                    bufMgr->unPinPage(file, leafNodeId, true);//page changed and thus is dirty
                 }//END: ROOT IS A NONLEAF NODE AND LEAF NODE IS NOT FULL
                 //START: ROOT IS A NONLEAF NODE AND LEAF NODE IS FULL
                 else if (full)
@@ -387,10 +387,10 @@ namespace badgerdb
                     Page * newLeafNodePage;
                     PageId newLeafNodePageId;
                     bufMgr->allocPage(file, newLeafNodePageId, newLeafNodePage);
+                    bufMgr->unPinPage(file, newLeafNodePageId, true); //page was dirtied
                     LeafNodeInt * newLeafNode = (LeafNodeInt *) newLeafNodePage;
                     int pushUpKey = -1;
                     splitLeafNodeInt(leafNode, newLeafNode, newLeafNodePageId, keyInt, rid, pushUpKey);
-                    bufMgr->unPinPage(file, newLeafNodePageId, true); //page was dirtied
                     
                     //INSERT PUSHUP KEY AND SEE IF NONLEAF NODES NEED TO SPLIT
                     done = false;
@@ -402,6 +402,7 @@ namespace badgerdb
                         bool full = true;
                         Page * nonLeafNodePage;
                         bufMgr->readPage(file, nonLeafNodeCurrentId, nonLeafNodePage);
+                        bufMgr->unPinPage(file, nonLeafNodeCurrentId, true);
                         NonLeafNodeInt * nonLeafNode = (NonLeafNodeInt *) nonLeafNodePage;
                         full = nonLeafFullInt(nonLeafNode, freeIndex);
                         //if nonLeafNode has room insert
@@ -422,7 +423,6 @@ namespace badgerdb
                                     check = true;
                                 }
                             }
-                            bufMgr->unPinPage(file, currentId, true);
                             done = true;
                         }
                         //DEBUGGING IS GOOD TILL THIS POINT
@@ -433,8 +433,8 @@ namespace badgerdb
                             Page * newNonLeafNodePage;
                             PageId newNonLeafNodePageId;
                             bufMgr->allocPage(file, newNonLeafNodePageId, newNonLeafNodePage);
+                            bufMgr->unPinPage(file, newNonLeafNodePageId, true);
                             NonLeafNodeInt * newNonLeafNode = (NonLeafNodeInt *) newNonLeafNodePage;
-                            
                             //If we are splitting a level 1 nonleafnode the newnonleafnode level is 1
                             if (nonLeafNode->level == 1)
                             {
@@ -479,8 +479,7 @@ namespace badgerdb
                                     done = true;
                                 }
                             }
-                            //ENDED HERE
-                            /*
+                            
                             int midIndex = (INTARRAYNONLEAFSIZE + 1) % 2;
                             if(midIndex == 0)
                             {
@@ -497,10 +496,13 @@ namespace badgerdb
                             {
                                 if (i < INTARRAYNONLEAFSIZE)
                                 {
-                                    node->keyArray[i] = NULL;
-                                    node->pageNoArray[i] = NULL;
-                                    newNonLeafNode->keyArray[k] = newKeyArr[i];
-                                    newNonLeafNode->pageNoArray[k] = newPageNoArray[i];
+                                    nonLeafNode->keyArray[i] = -1;
+                                    nonLeafNode->pageNoArray[i] = -1;
+                                    if (i != midIndex)
+                                    {
+                                        newNonLeafNode->keyArray[k] = newKeyArr[i];
+                                        newNonLeafNode->pageNoArray[k] = newPageNoArray[i];
+                                    }
                                 }
                                 else if (i == INTARRAYNONLEAFSIZE)
                                 {
@@ -511,8 +513,7 @@ namespace badgerdb
                             }
                             
                             int pushUpKey = newKeyArr[midIndex];
-                            bufMgr->unPinPage(file, currentId, true);
-                            bufMgr->unPinPage(file, newPageId, true);
+                            //END: SPLIT NONLEAF NODE
                             
                             if(stack.size() == 1)
                             {
@@ -528,7 +529,7 @@ namespace badgerdb
                                     newNode->keyArray[i] = NULL;
                                 }
                                 newNode->pageNoArray[0] = currentId;
-                                newNode->pageNoArray[1] = newPageId;
+                                newNode->pageNoArray[1] = pageId;
                                 
                                 IndexMetaInfo* metaIndex;
                                 Page* meta;
@@ -541,344 +542,341 @@ namespace badgerdb
                         }
                         stack.pop();
                     }
-
-
-                    
-                    
-    
-                    //create non leaf node and insert pushUpKey
-                    Page * nonLeafNodePage;
-                    PageId nonLeafNodePageId;
-                    bufMgr->allocPage(file, nonLeafNodePageId, nonLeafNodePage);
-                    NonLeafNodeInt * nonLeafNode = (NonLeafNodeInt *) nonLeafNodePage;
-                    //initialize the nonLeafNode
-                    nonLeafNode->level = 1;
-                    for (int i = 0; i < INTARRAYNONLEAFSIZE; i++)
-                    {
-                        nonLeafNode->keyArray[i] = -1;
-                        nonLeafNode->pageNoArray[i] = -1;
-                    }
-                    //insert pushUpKey into newNonLeafNode
-                    nonLeafNode->keyArray[0] = pushUpKey;
-                    //hard coded because old root leaf node was 2
-                    nonLeafNode->pageNoArray[0] = 2;
-                    nonLeafNode->pageNoArray[1] = newLeafNodePageId;
-                    //Set rootpagenum to this new node's pageid
-                    this->rootPageNum = nonLeafNodePageId;
-                    
-                             */
-                        }
-                    }
                 }
             }
+            
+            
+            
+            
+            /*
+             //create non leaf node and insert pushUpKey
+             Page * nonLeafNodePage;
+             PageId nonLeafNodePageId;
+             bufMgr->allocPage(file, nonLeafNodePageId, nonLeafNodePage);
+             NonLeafNodeInt * nonLeafNode = (NonLeafNodeInt *) nonLeafNodePage;
+             //initialize the nonLeafNode
+             nonLeafNode->level = 1;
+             for (int i = 0; i < INTARRAYNONLEAFSIZE; i++)
+             {
+             nonLeafNode->keyArray[i] = -1;
+             nonLeafNode->pageNoArray[i] = -1;
+             }
+             //insert pushUpKey into newNonLeafNode
+             nonLeafNode->keyArray[0] = pushUpKey;
+             //hard coded because old root leaf node was 2
+             nonLeafNode->pageNoArray[0] = 2;
+             nonLeafNode->pageNoArray[1] = newLeafNodePageId;
+             //Set rootpagenum to this new node's pageid
+             this->rootPageNum = nonLeafNodePageId;
+             */
             
             /*//FIND THE PAGEID
-            std::stack<PageId>stack;
-            int keyInt = *(int*)key;
-            PageId currentId = this->rootPageNum;
-            Page * page;
-            int saveIndex = 0;
-            bool done = false;
-            while (!done)
-            {
-                bufMgr->readPage(file, currentId, page);
-                bufMgr->unPinPage(file, currentId, false);
-                NonLeafNodeInt * node = (NonLeafNodeInt *) page;
-                bool found = false;
-                //Note the second else if may not be needed or could be made cleaner
-                for (int i = 0; i < INTARRAYNONLEAFSIZE && !found; i++)
-                {
-                    int currentKey = node->keyArray[i];
-                    if (currentKey == 0 || keyInt <= currentKey)
-                    {
-                        stack.push(currentId);
-
-                        found = true;
-                        currentId = node->pageNoArray[i];
-                        saveIndex = i;
-                    }
-                    else if (i == INTARRAYNONLEAFSIZE - 1)
-                    {
-                        stack.push(currentId);
-
-                        currentId = node->pageNoArray[INTARRAYNONLEAFSIZE];
-                        saveIndex = INTARRAYNONLEAFSIZE;
-                    }
-                }
-                if (node->level == 1)
-                {
-                    done = true;
-                }
-            }
-            //find out if node is full
-            int freeIndex = -1;
-            bool full = true;
-            Page* temp;
-            bufMgr->readPage(file, this->rootPageNum, temp);
-            NonLeafNodeInt * nonLeafNode;
-            nonLeafNode = (NonLeafNodeInt *) temp;
-            for(int i = 0; i < nodeOccupancy || !full; i++)
-            {
-                if (nonLeafNode->level == 1)
-                {
-                    bufMgr->readPage(file, nonLeafNode->pageNoArray[i], temp);
-                    LeafNodeInt * leafNode;
-                    leafNode = (LeafNodeInt *) temp;
-                    if(leafNode->ridArray[i].page_number == 0)
-                    {
-                        full = false;
-                        freeIndex = i;
-                        break;
-                    }
-                }
-            }
-            if(full)
-            {
-                freeIndex = -1;
-            }
-            
-            //not full
-            if (freeIndex != -1)
-            {
-                Page * page;
-                bufMgr->readPage(file, nonLeafNode->pageNoArray[currentId], page);
-                LeafNodeInt * leafNode;
-                leafNode = (LeafNodeInt*) page;
-                for (int i = freeIndex-1; i >= 0 && !done; i++)
-                {
-                    if (leafNode->keyArray[i] > keyInt)
-                    {
-                        leafNode->keyArray[i+1] = leafNode->keyArray[i];
-                        leafNode->ridArray[i+1] = leafNode->ridArray[i];
-                    }
-                    else
-                    {
-                        leafNode->keyArray[i+1] = keyInt;
-                        leafNode->ridArray[i+1] = rid;
-                    }
-                }
-                bufMgr->unPinPage(file, currentId, true);//page dirtied
-            }
-            /*
-            // ITS FULL
-            else
-            {
-                //create new node and split values, pushKeyUp is the key to insert into parent
-                
-                //current node is called node
-                
-                Page * newPage;
-                LeafNodeInt * newLeafNode;
-                PageId newPageId;
-                bufMgr->allocPage(file, newPageId, newPage);
-                newLeafNode->rightSibPageNo = node->rightSibPageNo;
-                node->rightSibPageNo = newPageId;
-                RecordId blankRID;
-                blankRID.page_number = NULL;
-                for(int i = 0; i < leafOccupancy; i++)
-                {
-                    newLeafNode->keyArray[i] = NULL;
-                    newLeafNode->ridArray[i] = blankRID;
-                }
-                RecordId newRidArr [INTARRAYLEAFSIZE + 1];
-                int newKeyArr [INTARRAYLEAFSIZE + 1];
-                for (int i = 0; i < INTARRAYLEAFSIZE + 1; i++)
-                {
-                    if (i < INTARRAYLEAFSIZE) {
-                        newRidArr[i] = node->ridArray[i];
-                        newKeyArr[i] = node->keyArray[i];
-                    }
-                    else if (i == INTARRAYLEAFSIZE)
-                    {
-                        newRidArr[i] = rid;
-                        newKeyArr[i] = keyInt;
-                    }
-                }
-                
-                qsort(newKeyArr, INTARRAYLEAFSIZE + 1, sizeof(int), compareInt);
-                qsort(newRidArr, INTARRAYLEAFSIZE + 1, sizeof(RecordId), compareRecordId);
-                
-                int midIndex = (INTARRAYLEAFSIZE + 1) % 2;
-                if(midIndex == 0)
-                {
-                    midIndex = (INTARRAYLEAFSIZE + 1) / 2;
-                }
-                else
-                {
-                    midIndex = ((INTARRAYLEAFSIZE + 1) / 2) + 1;
-                }
-                
-                int k = 0;
-                for (int i = midIndex; i < INTARRAYLEAFSIZE + 1; i++)
-                {
-                    if (i < INTARRAYLEAFSIZE)
-                    {
-                        node->keyArray[i] = NULL;
-                        node->ridArray[i] = blankRID;
-                        newLeafNode->keyArray[k] = newKeyArr[i];
-                        newLeafNode->ridArray[k] = newRidArr[i];
-                    }
-                    else if (i == INTARRAYLEAFSIZE)
-                    {
-                        newLeafNode->keyArray[k] = newKeyArr[i];
-                        newLeafNode->ridArray[k] = newRidArr[i];
-                    }
-                    k++;
-                }
-                
-                int pushUpKey = newKeyArr[midIndex];
-                
-                bufMgr->unPinPage(file, newPageId, false);
-                bool done = false;
-                while (!done)
-                {
-                    PageId currentId = stack.top();
-                    //find out if node is full
-                    int freeIndex = -1;
-                    bool full = true;
-                    Page * temp;
-                    bufMgr->readPage(file, currentId, temp);
-                    LeafNodeInt * node;
-                    node = (LeafNodeInt *) temp;
-                    for(int i = 0; i < leafOccupancy || !full; i++)
-                    {
-                        if(node->ridArray[i].page_number == NULL)
-                        {
-                            full = false;
-                            freeIndex = i;
-                        }
-                    }
-                    if(full)
-                    {
-                        freeIndex = -1;
-                    }
-                    //if not full
-                    if (!full)
-                    {
-                        Page* page;
-                        NonLeafNodeInt* parent;
-                        bufMgr->readPage(file, currentId, page);
-                        parent = (NonLeafNodeInt*) page;
-                        for (int i = freeIndex-1; i >= 0 && !done; i++)
-                        {
-                            if (parent->keyArray[i] > pushUpKey)
-                            {
-                                parent->keyArray[i+1] = parent->keyArray[i];
-                                parent->pageNoArray[i+1] = parent->pageNoArray[i];
-                            }
-                            else
-                            {
-                                parent->keyArray[i+1] = pushUpKey;
-                                parent->pageNoArray[i+1] = newPageId;
-                            }
-                        }
-                        bufMgr->unPinPage(file, currentId, true);
-                        done = true;
-                    }
-                    //else full
-                    else
-                    {
-                        Page * oldPage;
-                        bufMgr->readPage(file, currentId, oldPage);
-                        NonLeafNodeInt * node = (NonLeafNodeInt *)oldPage;
-                        Page * newPage;
-                        NonLeafNodeInt * newNonLeafNode;
-                        PageId newPageId;
-                        bufMgr->allocPage(file, newPageId, newPage);
-                        if (node->level == 1)
-                        {
-                            newNonLeafNode->level = 1;
-                        }
-                        else
-                        {
-                            newNonLeafNode->level = 0;
-                        }
-                        
-                        for(int i = 0; i < INTARRAYNONLEAFSIZE; i++)
-                        {
-                            newNonLeafNode->keyArray[i] = NULL;
-                            newNonLeafNode->pageNoArray[i] = NULL;
-                        }
-                        int newKeyArr [INTARRAYNONLEAFSIZE + 1];
-                        int newPageNoArray [INTARRAYNONLEAFSIZE + 2];
-                        for (int i = 0; i < INTARRAYNONLEAFSIZE + 1; i++)
-                        {
-                            if (i < INTARRAYNONLEAFSIZE) {
-                                newPageNoArray[i] = node->pageNoArray[i];
-                                newKeyArr[i] = node->keyArray[i];
-                            }
-                            else if (i == INTARRAYNONLEAFSIZE)
-                            {
-                                newPageNoArray[i] = newPageId;
-                                newKeyArr[i] = pushUpKey;
-                            }
-                        }
-                        
-                        qsort(newKeyArr, INTARRAYNONLEAFSIZE + 1, sizeof(int), compareInt);
-                        qsort(newPageNoArray, INTARRAYNONLEAFSIZE + 1, sizeof(PageId), compareInt);
-                        
-                        int midIndex = (INTARRAYNONLEAFSIZE + 1) % 2;
-                        if(midIndex == 0)
-                        {
-                            midIndex = (INTARRAYNONLEAFSIZE + 1) / 2;
-                        }
-                        else
-                        {
-                            midIndex = ((INTARRAYNONLEAFSIZE + 1) / 2) + 1;
-                        }
-                        
-                        
-                        int k = 0;
-                        for (int i = midIndex; i < INTARRAYNONLEAFSIZE + 1; i++)
-                        {
-                            if (i < INTARRAYNONLEAFSIZE)
-                            {
-                                node->keyArray[i] = NULL;
-                                node->pageNoArray[i] = NULL;
-                                newNonLeafNode->keyArray[k] = newKeyArr[i];
-                                newNonLeafNode->pageNoArray[k] = newPageNoArray[i];
-                            }
-                            else if (i == INTARRAYNONLEAFSIZE)
-                            {
-                                newNonLeafNode->keyArray[k] = newKeyArr[i];
-                                newNonLeafNode->pageNoArray[k] = newPageNoArray[i];
-                            }
-                            k++;
-                        }
-                        
-                        int pushUpKey = newKeyArr[midIndex];
-                        bufMgr->unPinPage(file, currentId, true);
-                        bufMgr->unPinPage(file, newPageId, true);
-                        
-                        if(stack.size() == 1)
-                        {
-                            Page * page;
-                            PageId pageId;
-                            NonLeafNodeInt* newNode;
-                            bufMgr->allocPage(file, pageId, page);
-                            newNode = (NonLeafNodeInt*) page;
-                            newNode->level = 0;
-                            newNode->keyArray[0] = pushUpKey;
-                            for(int i = 1; i < INTARRAYNONLEAFSIZE; i++)
-                            {
-                                newNode->keyArray[i] = NULL;
-                            }
-                            newNode->pageNoArray[0] = currentId;
-                            newNode->pageNoArray[1] = newPageId;
-                            
-                            IndexMetaInfo* metaIndex;
-                            Page* meta;
-                            bufMgr->readPage(file, 1, meta);
-                            metaIndex = (IndexMetaInfo*) meta;
-                            metaIndex->rootPageNo = pageId;
-                            this->rootPageNum = pageId;
-                            bufMgr->unPinPage(file, 1, true);
-                        }
-                    }
-                    stack.pop();
-                }
-                
-            }*/
+             std::stack<PageId>stack;
+             int keyInt = *(int*)key;
+             PageId currentId = this->rootPageNum;
+             Page * page;
+             int saveIndex = 0;
+             bool done = false;
+             while (!done)
+             {
+             bufMgr->readPage(file, currentId, page);
+             bufMgr->unPinPage(file, currentId, false);
+             NonLeafNodeInt * node = (NonLeafNodeInt *) page;
+             bool found = false;
+             //Note the second else if may not be needed or could be made cleaner
+             for (int i = 0; i < INTARRAYNONLEAFSIZE && !found; i++)
+             {
+             int currentKey = node->keyArray[i];
+             if (currentKey == 0 || keyInt <= currentKey)
+             {
+             stack.push(currentId);
+             
+             found = true;
+             currentId = node->pageNoArray[i];
+             saveIndex = i;
+             }
+             else if (i == INTARRAYNONLEAFSIZE - 1)
+             {
+             stack.push(currentId);
+             
+             currentId = node->pageNoArray[INTARRAYNONLEAFSIZE];
+             saveIndex = INTARRAYNONLEAFSIZE;
+             }
+             }
+             if (node->level == 1)
+             {
+             done = true;
+             }
+             }
+             //find out if node is full
+             int freeIndex = -1;
+             bool full = true;
+             Page* temp;
+             bufMgr->readPage(file, this->rootPageNum, temp);
+             NonLeafNodeInt * nonLeafNode;
+             nonLeafNode = (NonLeafNodeInt *) temp;
+             for(int i = 0; i < nodeOccupancy || !full; i++)
+             {
+             if (nonLeafNode->level == 1)
+             {
+             bufMgr->readPage(file, nonLeafNode->pageNoArray[i], temp);
+             LeafNodeInt * leafNode;
+             leafNode = (LeafNodeInt *) temp;
+             if(leafNode->ridArray[i].page_number == 0)
+             {
+             full = false;
+             freeIndex = i;
+             break;
+             }
+             }
+             }
+             if(full)
+             {
+             freeIndex = -1;
+             }
+             
+             //not full
+             if (freeIndex != -1)
+             {
+             Page * page;
+             bufMgr->readPage(file, nonLeafNode->pageNoArray[currentId], page);
+             LeafNodeInt * leafNode;
+             leafNode = (LeafNodeInt*) page;
+             for (int i = freeIndex-1; i >= 0 && !done; i++)
+             {
+             if (leafNode->keyArray[i] > keyInt)
+             {
+             leafNode->keyArray[i+1] = leafNode->keyArray[i];
+             leafNode->ridArray[i+1] = leafNode->ridArray[i];
+             }
+             else
+             {
+             leafNode->keyArray[i+1] = keyInt;
+             leafNode->ridArray[i+1] = rid;
+             }
+             }
+             bufMgr->unPinPage(file, currentId, true);//page dirtied
+             }
+             /*
+             // ITS FULL
+             else
+             {
+             //create new node and split values, pushKeyUp is the key to insert into parent
+             
+             //current node is called node
+             
+             Page * newPage;
+             LeafNodeInt * newLeafNode;
+             PageId newPageId;
+             bufMgr->allocPage(file, newPageId, newPage);
+             newLeafNode->rightSibPageNo = node->rightSibPageNo;
+             node->rightSibPageNo = newPageId;
+             RecordId blankRID;
+             blankRID.page_number = NULL;
+             for(int i = 0; i < leafOccupancy; i++)
+             {
+             newLeafNode->keyArray[i] = NULL;
+             newLeafNode->ridArray[i] = blankRID;
+             }
+             RecordId newRidArr [INTARRAYLEAFSIZE + 1];
+             int newKeyArr [INTARRAYLEAFSIZE + 1];
+             for (int i = 0; i < INTARRAYLEAFSIZE + 1; i++)
+             {
+             if (i < INTARRAYLEAFSIZE) {
+             newRidArr[i] = node->ridArray[i];
+             newKeyArr[i] = node->keyArray[i];
+             }
+             else if (i == INTARRAYLEAFSIZE)
+             {
+             newRidArr[i] = rid;
+             newKeyArr[i] = keyInt;
+             }
+             }
+             
+             qsort(newKeyArr, INTARRAYLEAFSIZE + 1, sizeof(int), compareInt);
+             qsort(newRidArr, INTARRAYLEAFSIZE + 1, sizeof(RecordId), compareRecordId);
+             
+             int midIndex = (INTARRAYLEAFSIZE + 1) % 2;
+             if(midIndex == 0)
+             {
+             midIndex = (INTARRAYLEAFSIZE + 1) / 2;
+             }
+             else
+             {
+             midIndex = ((INTARRAYLEAFSIZE + 1) / 2) + 1;
+             }
+             
+             int k = 0;
+             for (int i = midIndex; i < INTARRAYLEAFSIZE + 1; i++)
+             {
+             if (i < INTARRAYLEAFSIZE)
+             {
+             node->keyArray[i] = NULL;
+             node->ridArray[i] = blankRID;
+             newLeafNode->keyArray[k] = newKeyArr[i];
+             newLeafNode->ridArray[k] = newRidArr[i];
+             }
+             else if (i == INTARRAYLEAFSIZE)
+             {
+             newLeafNode->keyArray[k] = newKeyArr[i];
+             newLeafNode->ridArray[k] = newRidArr[i];
+             }
+             k++;
+             }
+             
+             int pushUpKey = newKeyArr[midIndex];
+             
+             bufMgr->unPinPage(file, newPageId, false);
+             bool done = false;
+             while (!done)
+             {
+             PageId currentId = stack.top();
+             //find out if node is full
+             int freeIndex = -1;
+             bool full = true;
+             Page * temp;
+             bufMgr->readPage(file, currentId, temp);
+             LeafNodeInt * node;
+             node = (LeafNodeInt *) temp;
+             for(int i = 0; i < leafOccupancy || !full; i++)
+             {
+             if(node->ridArray[i].page_number == NULL)
+             {
+             full = false;
+             freeIndex = i;
+             }
+             }
+             if(full)
+             {
+             freeIndex = -1;
+             }
+             //if not full
+             if (!full)
+             {
+             Page* page;
+             NonLeafNodeInt* parent;
+             bufMgr->readPage(file, currentId, page);
+             parent = (NonLeafNodeInt*) page;
+             for (int i = freeIndex-1; i >= 0 && !done; i++)
+             {
+             if (parent->keyArray[i] > pushUpKey)
+             {
+             parent->keyArray[i+1] = parent->keyArray[i];
+             parent->pageNoArray[i+1] = parent->pageNoArray[i];
+             }
+             else
+             {
+             parent->keyArray[i+1] = pushUpKey;
+             parent->pageNoArray[i+1] = newPageId;
+             }
+             }
+             bufMgr->unPinPage(file, currentId, true);
+             done = true;
+             }
+             //else full
+             else
+             {
+             Page * oldPage;
+             bufMgr->readPage(file, currentId, oldPage);
+             NonLeafNodeInt * node = (NonLeafNodeInt *)oldPage;
+             Page * newPage;
+             NonLeafNodeInt * newNonLeafNode;
+             PageId newPageId;
+             bufMgr->allocPage(file, newPageId, newPage);
+             if (node->level == 1)
+             {
+             newNonLeafNode->level = 1;
+             }
+             else
+             {
+             newNonLeafNode->level = 0;
+             }
+             
+             for(int i = 0; i < INTARRAYNONLEAFSIZE; i++)
+             {
+             newNonLeafNode->keyArray[i] = NULL;
+             newNonLeafNode->pageNoArray[i] = NULL;
+             }
+             int newKeyArr [INTARRAYNONLEAFSIZE + 1];
+             int newPageNoArray [INTARRAYNONLEAFSIZE + 2];
+             for (int i = 0; i < INTARRAYNONLEAFSIZE + 1; i++)
+             {
+             if (i < INTARRAYNONLEAFSIZE) {
+             newPageNoArray[i] = node->pageNoArray[i];
+             newKeyArr[i] = node->keyArray[i];
+             }
+             else if (i == INTARRAYNONLEAFSIZE)
+             {
+             newPageNoArray[i] = newPageId;
+             newKeyArr[i] = pushUpKey;
+             }
+             }
+             
+             qsort(newKeyArr, INTARRAYNONLEAFSIZE + 1, sizeof(int), compareInt);
+             qsort(newPageNoArray, INTARRAYNONLEAFSIZE + 1, sizeof(PageId), compareInt);
+             
+             int midIndex = (INTARRAYNONLEAFSIZE + 1) % 2;
+             if(midIndex == 0)
+             {
+             midIndex = (INTARRAYNONLEAFSIZE + 1) / 2;
+             }
+             else
+             {
+             midIndex = ((INTARRAYNONLEAFSIZE + 1) / 2) + 1;
+             }
+             
+             
+             int k = 0;
+             for (int i = midIndex; i < INTARRAYNONLEAFSIZE + 1; i++)
+             {
+             if (i < INTARRAYNONLEAFSIZE)
+             {
+             node->keyArray[i] = NULL;
+             node->pageNoArray[i] = NULL;
+             newNonLeafNode->keyArray[k] = newKeyArr[i];
+             newNonLeafNode->pageNoArray[k] = newPageNoArray[i];
+             }
+             else if (i == INTARRAYNONLEAFSIZE)
+             {
+             newNonLeafNode->keyArray[k] = newKeyArr[i];
+             newNonLeafNode->pageNoArray[k] = newPageNoArray[i];
+             }
+             k++;
+             }
+             
+             int pushUpKey = newKeyArr[midIndex];
+             bufMgr->unPinPage(file, currentId, true);
+             bufMgr->unPinPage(file, newPageId, true);
+             
+             if(stack.size() == 1)
+             {
+             Page * page;
+             PageId pageId;
+             NonLeafNodeInt* newNode;
+             bufMgr->allocPage(file, pageId, page);
+             newNode = (NonLeafNodeInt*) page;
+             newNode->level = 0;
+             newNode->keyArray[0] = pushUpKey;
+             for(int i = 1; i < INTARRAYNONLEAFSIZE; i++)
+             {
+             newNode->keyArray[i] = NULL;
+             }
+             newNode->pageNoArray[0] = currentId;
+             newNode->pageNoArray[1] = newPageId;
+             
+             IndexMetaInfo* metaIndex;
+             Page* meta;
+             bufMgr->readPage(file, 1, meta);
+             metaIndex = (IndexMetaInfo*) meta;
+             metaIndex->rootPageNo = pageId;
+             this->rootPageNum = pageId;
+             bufMgr->unPinPage(file, 1, true);
+             }
+             }
+             stack.pop();
+             }
+             
+             }*/
             
         }//END OF INTEGER
         //DOUBLE
@@ -895,7 +893,7 @@ namespace badgerdb
         else
         {
             
-        
+            
         }
     }
     
@@ -927,88 +925,118 @@ namespace badgerdb
         
         if (this->attributeType == 0)
         {
+            
             lowValInt = *(int *)lowValParm;
             highValInt = *(int *)highValParm;
             if (lowValInt > highValInt)
             {
                 throw BadScanrangeException();
             }
-            NonLeafNodeInt * node;
+            bool check = false;
+            NonLeafNodeInt * nonLeafNode;
             currentPageNum = rootPageNum;
             bufMgr->readPage(file, currentPageNum, currentPageData);
-            bufMgr->unPinPage(file, currentPageNum, currentPageData);
-            node = (NonLeafNodeInt *) currentPageData;
-            while (node->level == 0)
+            bufMgr->unPinPage(file, currentPageNum, true);
+            nonLeafNode = (NonLeafNodeInt *) currentPageData;
+            while (nonLeafNode->level == 0)
             {
+                check = true;
                 bufMgr->readPage(file, currentPageNum, currentPageData);
                 bufMgr->unPinPage(file, currentPageNum, false);
-                NonLeafNodeInt * node = (NonLeafNodeInt *) currentPageData;
+                NonLeafNodeInt * nonLeafNode = (NonLeafNodeInt *) currentPageData;
                 bool found = false;
-                std::cout << node->level << "\n";
+                std::cout << nonLeafNode->level << "\n";
                 //Note the second else if may not be needed or could be made cleaner
                 for (int i = 0; i < this->nodeOccupancy && !found; i++)
                 {
-                    std::cout << node->keyArray[i] << "\n";
-                    if (lowValInt <= node->keyArray[i])
+                    std::cout << nonLeafNode->keyArray[i] << "\n";
+                    if (lowValInt <= nonLeafNode->keyArray[i])
                     {
-                        currentPageNum = node->pageNoArray[i];
+                        currentPageNum = nonLeafNode->pageNoArray[i];
                         found = true;
                     }
-                    if(node->keyArray[i] == NULL)
+                    if(nonLeafNode->keyArray[i] == -1)
                     {
-                        currentPageNum = node->pageNoArray[i + 1];
+                        currentPageNum = nonLeafNode->pageNoArray[i + 1];
                         found = true;
                     }
                     if (i == this->nodeOccupancy - 1)
                     {
-                        currentPageNum = node->pageNoArray[this->nodeOccupancy];
+                        currentPageNum = nonLeafNode->pageNoArray[this->nodeOccupancy];
                         found = true;
                     }
                 }
             }
-            //REPIN IT
+            if (check == false)
+            {
+                check = true;
+                bufMgr->readPage(file, currentPageNum, currentPageData);
+                bufMgr->unPinPage(file, currentPageNum, false);
+                NonLeafNodeInt * nonLeafNode = (NonLeafNodeInt *) currentPageData;
+                bool found = false;
+                std::cout << nonLeafNode->level << "\n";
+                //Note the second else if may not be needed or could be made cleaner
+                for (int i = 0; i < this->nodeOccupancy && !found; i++)
+                {
+                    std::cout << nonLeafNode->keyArray[i] << "\n";
+                    if (lowValInt <= nonLeafNode->keyArray[i])
+                    {
+                        currentPageNum = nonLeafNode->pageNoArray[i];
+                        found = true;
+                    }
+                    if(nonLeafNode->keyArray[i] == -1)
+                    {
+                        currentPageNum = nonLeafNode->pageNoArray[i + 1];
+                        found = true;
+                    }
+                    if (i == this->nodeOccupancy - 1)
+                    {
+                        currentPageNum = nonLeafNode->pageNoArray[this->nodeOccupancy];
+                        found = true;
+                    }
+                }
+            }
+            else if (check == true)
+            {
+                
+            }
             bufMgr->readPage(file, currentPageNum, currentPageData);
+            bufMgr->unPinPage(file, currentPageNum, false);
             LeafNodeInt * leafNode = (LeafNodeInt *) currentPageData;
             bool found = false;
             while (!found)
             {
-                for(int i = 0; i < this->leafOccupancy && !found; i++)
+                for(int i = 0; i < INTARRAYLEAFSIZE && !found; i++)
                 {
-                    if(leafNode->keyArray[i] == highValInt)
-                    {
-                        if(highOp != LTE)
-                        {
-                            throw NoSuchKeyFoundException();
-                        }
-                        else
-                        {
-                            found = true;
-                        }
-                    }
-                    if(leafNode->keyArray[i] == lowValInt)
-                    {
-                        if(lowOp != GTE)
-                        {
-                            throw NoSuchKeyFoundException();
-                        }
-                        else
-                        {
-                            found = true;
-                        }
-                    }
-                    if(leafNode->keyArray[i] < highValInt && leafNode->keyArray[i] > lowValInt)
-                    {
-                        found = true;
-                    }
-                    if(leafNode->keyArray[i] > highValInt)
+                    int key = leafNode->keyArray[i];
+                    if(key > highValInt)
                     {
                         throw NoSuchKeyFoundException();
                     }
+                    if(key == highValInt)
+                    {
+                        if(highOp == LTE)
+                        {
+                            found = true;
+                        }
+                    }
+                    if(key < highValInt && key > lowValInt)
+                    {
+                        found = true;
+                    }
+                    if(key == lowValInt)
+                    {
+                        if(lowOp == GTE)
+                        {
+                            found = true;
+                        }
+                    }
                 }
+                
                 if (!found)
                 {
                     bufMgr->unPinPage(file, currentPageNum, false);
-                    if (leafNode->rightSibPageNo == NULL)
+                    if (leafNode->rightSibPageNo == 0)
                     {
                         throw NoSuchKeyFoundException();
                     }
@@ -1016,32 +1044,77 @@ namespace badgerdb
                     bufMgr->readPage(file, currentPageNum, currentPageData);
                 }
             }
+            std::cout << "WE MADE IT\n";
         }
         //DOUBLE
         else if (this->attributeType == 1)
         {
-        
+            
         }
         //STRING
         else if (this->attributeType == 2)
         {
-        
+            
         }
         //ERROR
         else
         {
-        
+            
         }
-    
+        
     }
-
+    
     // -----------------------------------------------------------------------------
     // BTreeIndex::scanNext
     // -----------------------------------------------------------------------------
     
     const void BTreeIndex::scanNext(RecordId& outRid)
     {
-        
+        if (this->attributeType == 0)
+        {
+            bool found = false;
+            bufMgr->readPage(file, currentPageNum, currentPageData);
+            LeafNodeInt * leafNode = (LeafNodeInt *) currentPageData;
+            while (!found)
+            {
+                for(int i = 0; i < INTARRAYLEAFSIZE && !found; i++)
+                {
+                    int key = leafNode->keyArray[i];
+                    if(key > highValInt)
+                    {
+                        throw IndexScanCompletedException();
+                    }
+                    if(key == highValInt)
+                    {
+                        if(highOp == LTE)
+                        {
+                            found = true;
+                            outRid = leafNode->ridArray[i];
+                            this->lowValInt = key + 1;
+                        }
+                        else
+                        {
+                            throw IndexScanCompletedException();
+                        }
+                    }
+                    if(key < highValInt && key > lowValInt)
+                    {
+                        found = true;
+                        outRid = leafNode->ridArray[i];
+                        this->lowValInt = key;
+                    }
+                    if(key == lowValInt)
+                    {
+                        if(lowOp == GTE)
+                        {
+                            found = true;
+                            outRid = leafNode->ridArray[i];
+                            this->lowValInt = key + 1;
+                        }
+                    }
+                }
+            }
+        }
     }
     
     // -----------------------------------------------------------------------------
@@ -1050,7 +1123,23 @@ namespace badgerdb
     //
     const void BTreeIndex::endScan()
     {
+        if(scanExecuting == false)
+        {
+            throw ScanNotInitializedException();
+        }
         
+        try
+        {
+            bufMgr->unPinPage(file, currentPageNum, false);
+        }
+        catch (BadgerDbException& e)
+        {
+        }
+        
+        this->nextEntry = 0;
+        this->currentPageNum = 0;
+        this->currentPageData = NULL;
+        this->scanExecuting = false;
     }
     
     // -----------------------------------------------------------------------------
